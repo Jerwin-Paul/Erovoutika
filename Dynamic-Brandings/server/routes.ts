@@ -4,6 +4,7 @@ import { setupAuth } from "./auth";
 import { storage } from "./storage";
 import { api } from "@shared/routes";
 import { z } from "zod";
+import passport from "passport";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -11,6 +12,40 @@ export async function registerRoutes(
 ): Promise<Server> {
   // Setup authentication routes and middleware
   setupAuth(app);
+
+  // === Authentication Routes ===
+  app.post(api.auth.login.path, (req, res, next) => {
+    passport.authenticate("local", (err: any, user: any) => {
+      if (err) return next(err);
+      if (!user) {
+        return res.status(401).json({ message: "Invalid username or password" });
+      }
+      req.logIn(user, (err) => {
+        if (err) return next(err);
+        // Don't send password in response
+        const { password, ...safeUser } = user;
+        return res.json(safeUser);
+      });
+    })(req, res, next);
+  });
+
+  app.post(api.auth.logout.path, (req, res) => {
+    req.logout((err) => {
+      if (err) {
+        return res.status(500).json({ message: "Logout failed" });
+      }
+      res.json({ message: "Logged out successfully" });
+    });
+  });
+
+  app.get(api.auth.me.path, (req, res) => {
+    if (!req.isAuthenticated()) {
+      return res.status(401).json({ message: "Not authenticated" });
+    }
+    const user = req.user as any;
+    const { password, ...safeUser } = user;
+    res.json(safeUser);
+  });
 
   // === User Management ===
   app.get(api.users.list.path, async (req, res) => {
@@ -60,7 +95,7 @@ export async function registerRoutes(
   app.get(api.subjects.list.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const user = req.user as any;
-    
+
     if (user.role === "student") {
       const subjects = await storage.getSubjectsByStudent(user.id);
       return res.json(subjects);
@@ -68,7 +103,7 @@ export async function registerRoutes(
       const subjects = await storage.getSubjectsByTeacher(user.id);
       return res.json(subjects);
     }
-    
+
     const subjects = await storage.getAllSubjects();
     res.json(subjects);
   });
@@ -99,7 +134,7 @@ export async function registerRoutes(
   app.get(api.attendance.list.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
     const user = req.user as any;
-    
+
     // For students, force filter by their own ID unless they are admin/teacher viewing specific data
     let studentId = req.query.studentId ? parseInt(req.query.studentId as string) : undefined;
     if (user.role === "student") {
