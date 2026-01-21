@@ -130,6 +130,13 @@ export async function registerRoutes(
     res.json(students);
   });
 
+  app.delete('/api/subjects/:id', async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const subjectId = parseInt(req.params.id);
+    await storage.deleteSubject(subjectId);
+    res.sendStatus(204);
+  });
+
   // === Attendance ===
   app.get(api.attendance.list.path, async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -285,6 +292,9 @@ async function seedDatabase() {
 
   // Seed schedules for existing subjects if they don't have any
   await seedSchedulesForExistingSubjects();
+  
+  // Seed students for existing subjects
+  await seedStudentsForSubjects();
 }
 
 async function seedSchedulesForExistingSubjects() {
@@ -314,6 +324,78 @@ async function seedSchedulesForExistingSubjects() {
         // Default schedule for any other subject: TTh 2:00-3:30 PM
         await storage.createSchedule({ subjectId: subject.id, dayOfWeek: "Tuesday", startTime: "14:00", endTime: "15:30", room: "Q4212" });
         await storage.createSchedule({ subjectId: subject.id, dayOfWeek: "Thursday", startTime: "14:00", endTime: "15:30", room: "Q4212" });
+      }
+    }
+  }
+}
+
+async function seedStudentsForSubjects() {
+  // Check if we already have enough students
+  const existingStudents = await storage.getUsersByRole("student");
+  
+  if (existingStudents.length < 10) {
+    // Filipino student names
+    const studentNames = [
+      { first: "Maria", last: "Santos" },
+      { first: "Jose", last: "Garcia" },
+      { first: "Ana", last: "Reyes" },
+      { first: "Pedro", last: "Cruz" },
+      { first: "Rosa", last: "Mendoza" },
+      { first: "Carlos", last: "Torres" },
+      { first: "Elena", last: "Ramos" },
+      { first: "Miguel", last: "Flores" },
+      { first: "Lucia", last: "Bautista" },
+      { first: "Antonio", last: "Villanueva" },
+      { first: "Carmen", last: "Aquino" },
+      { first: "Rafael", last: "Pascual" },
+      { first: "Isabel", last: "Fernandez" },
+      { first: "Francisco", last: "De Leon" },
+      { first: "Teresa", last: "Gonzales" },
+    ];
+
+    const createdStudents: number[] = [];
+    
+    for (let i = 0; i < studentNames.length; i++) {
+      const name = studentNames[i];
+      const username = `student${i + 2}`; // student2, student3, etc.
+      
+      // Check if student already exists
+      const existing = await storage.getUserByUsername(username);
+      if (!existing) {
+        const student = await storage.createUser({
+          username,
+          password: "password",
+          fullName: `${name.first} ${name.last}`,
+          role: "student"
+        });
+        createdStudents.push(student.id);
+      }
+    }
+
+    // Get all students again
+    const allStudents = await storage.getUsersByRole("student");
+    const allSubjects = await storage.getAllSubjects();
+
+    // Enroll students in subjects (randomize enrollment)
+    for (const subject of allSubjects) {
+      const existingEnrollments = await storage.getSubjectStudents(subject.id);
+      
+      if (existingEnrollments.length < 5) {
+        // Enroll 8-12 random students per subject
+        const shuffledStudents = [...allStudents].sort(() => Math.random() - 0.5);
+        const studentsToEnroll = shuffledStudents.slice(0, Math.floor(Math.random() * 5) + 8);
+        
+        for (const student of studentsToEnroll) {
+          // Check if already enrolled
+          const isEnrolled = existingEnrollments.some(e => e.id === student.id);
+          if (!isEnrolled) {
+            try {
+              await storage.enrollStudent(student.id, subject.id);
+            } catch (e) {
+              // Ignore duplicate enrollment errors
+            }
+          }
+        }
       }
     }
   }

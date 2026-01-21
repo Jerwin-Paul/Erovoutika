@@ -25,6 +25,7 @@ export interface IStorage {
   getAllSubjects(): Promise<Subject[]>;
   getSubjectsByTeacher(teacherId: number): Promise<Subject[]>;
   getSubjectsByStudent(studentId: number): Promise<Subject[]>;
+  deleteSubject(id: number): Promise<void>;
   
   // Enrollments
   enrollStudent(studentId: number, subjectId: number): Promise<Enrollment>;
@@ -89,6 +90,13 @@ export class DatabaseStorage implements IStorage {
 
   async getAllSubjects(): Promise<Subject[]> {
     return db.select().from(subjects);
+  }
+
+  async deleteSubject(id: number): Promise<void> {
+    // Delete related schedules and enrollments first
+    await db.delete(schedules).where(eq(schedules.subjectId, id));
+    await db.delete(enrollments).where(eq(enrollments.subjectId, id));
+    await db.delete(subjects).where(eq(subjects.id, id));
   }
 
   async getSubjectsByTeacher(teacherId: number): Promise<Subject[]> {

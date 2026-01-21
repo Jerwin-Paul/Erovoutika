@@ -43,8 +43,9 @@ export function useCreateSchedule() {
       if (!res.ok) throw new Error("Failed to create schedule");
       return api.schedules.create.responses[201].parse(await res.json());
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: [api.schedules.listByTeacher.path] });
+      queryClient.invalidateQueries({ queryKey: [api.schedules.listBySubject.path, variables.subjectId] });
       toast({ title: "Schedule Created", description: "New schedule has been added." });
     },
     onError: () => {
@@ -68,6 +69,10 @@ export function useDeleteSchedule() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: [api.schedules.listByTeacher.path] });
+      // Invalidate all subject schedule queries
+      queryClient.invalidateQueries({ predicate: (query) => 
+        query.queryKey[0] === api.schedules.listBySubject.path 
+      });
       toast({ title: "Schedule Deleted", description: "Schedule has been removed." });
     },
     onError: () => {

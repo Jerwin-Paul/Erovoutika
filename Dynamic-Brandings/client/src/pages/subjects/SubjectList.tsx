@@ -1,13 +1,18 @@
 import { useState } from "react";
-import { useSubjects, useCreateSubject } from "@/hooks/use-subjects";
+import { useSubjects, useCreateSubject, useSubjectStudents } from "@/hooks/use-subjects";
 import { useAuth } from "@/hooks/use-auth";
-import { Link } from "wouter";
 import { 
   BookOpen, 
   Plus, 
   Search, 
   MoreVertical, 
-  Users 
+  Users,
+  User,
+  X,
+  Calendar,
+  Trash2,
+  Clock,
+  MapPin
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +27,23 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
   Form,
   FormControl,
   FormField,
@@ -29,20 +51,47 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertSubjectSchema } from "@shared/schema";
+import { insertSubjectSchema, type Subject } from "@shared/schema";
 import { z } from "zod";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { useSubjectSchedules, useCreateSchedule, useDeleteSchedule } from "@/hooks/use-schedules";
+import { useToast } from "@/hooks/use-toast";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { api, buildUrl } from "@shared/routes";
 
 export default function SubjectList() {
   const { user } = useAuth();
   const { data: subjects, isLoading } = useSubjects();
   const [search, setSearch] = useState("");
+  const [selectedSubject, setSelectedSubject] = useState<Subject | null>(null);
+  const [editScheduleSubject, setEditScheduleSubject] = useState<Subject | null>(null);
+  const [deleteSubject, setDeleteSubject] = useState<Subject | null>(null);
 
   const filteredSubjects = subjects?.filter(s => 
     s.name.toLowerCase().includes(search.toLowerCase()) || 
     s.code.toLowerCase().includes(search.toLowerCase())
   );
+
+  const handleSubjectClick = (subject: Subject) => {
+    setSelectedSubject(subject);
+  };
 
   return (
     <div className="space-y-8">
@@ -77,38 +126,58 @@ export default function SubjectList() {
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-6">
           {filteredSubjects?.map((subject) => (
-            <Link key={subject.id} href={`/subjects/${subject.id}`}>
-              <Card className="group cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300">
-                <CardHeader>
-                  <div className="flex justify-between items-start">
-                    <div className="px-2.5 py-1 rounded-md bg-secondary text-secondary-foreground text-xs font-semibold font-mono">
-                      {subject.code}
-                    </div>
-                    {user?.role === "teacher" && (
-                      <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2 text-muted-foreground">
-                        <MoreVertical className="h-4 w-4" />
-                      </Button>
-                    )}
+            <Card 
+              key={subject.id} 
+              className="group cursor-pointer hover:border-primary/50 hover:shadow-lg transition-all duration-300"
+              onClick={() => handleSubjectClick(subject)}
+            >
+              <CardHeader>
+                <div className="flex justify-between items-start">
+                  <div className="px-2.5 py-1 rounded-md bg-secondary text-secondary-foreground text-xs font-semibold font-mono">
+                    {subject.code}
                   </div>
-                  <CardTitle className="mt-2 text-xl">{subject.name}</CardTitle>
-                  <CardDescription className="line-clamp-2 min-h-[40px]">
-                    {subject.description || "No description provided."}
-                  </CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground border-t pt-4">
-                    <div className="flex items-center gap-1.5">
-                      <Users className="w-4 h-4" />
-                      <span>32 Students</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <BookOpen className="w-4 h-4" />
-                      <span>Active</span>
-                    </div>
+                  {user?.role === "teacher" && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon" className="h-8 w-8 -mt-2 -mr-2 text-muted-foreground" onClick={(e) => e.stopPropagation()}>
+                          <MoreVertical className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end" onClick={(e) => e.stopPropagation()}>
+                        <DropdownMenuItem onClick={() => setEditScheduleSubject(subject)}>
+                          <Calendar className="w-4 h-4 mr-2" />
+                          Edit Schedule
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem 
+                          className="text-destructive focus:text-destructive"
+                          onClick={() => setDeleteSubject(subject)}
+                        >
+                          <Trash2 className="w-4 h-4 mr-2" />
+                          Delete Subject
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
+                </div>
+                <CardTitle className="mt-2 text-xl">{subject.name}</CardTitle>
+                <CardDescription className="line-clamp-2 min-h-[40px]">
+                  {subject.description || "No description provided."}
+                </CardDescription>
+              </CardHeader>
+              <CardContent>
+                <div className="flex items-center gap-4 text-sm text-muted-foreground border-t pt-4">
+                  <div className="flex items-center gap-1.5">
+                    <Users className="w-4 h-4" />
+                    <span>View Students</span>
                   </div>
-                </CardContent>
-              </Card>
-            </Link>
+                  <div className="flex items-center gap-1.5">
+                    <BookOpen className="w-4 h-4" />
+                    <span>Active</span>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           ))}
           {filteredSubjects?.length === 0 && (
             <div className="col-span-full flex flex-col items-center justify-center py-16 text-center bg-gray-50 border border-dashed rounded-xl">
@@ -121,7 +190,105 @@ export default function SubjectList() {
           )}
         </div>
       )}
+
+      {/* Student List Dialog */}
+      <StudentListDialog 
+        subject={selectedSubject} 
+        open={!!selectedSubject} 
+        onClose={() => setSelectedSubject(null)} 
+      />
+
+      {/* Edit Schedule Dialog */}
+      <EditScheduleDialog
+        subject={editScheduleSubject}
+        open={!!editScheduleSubject}
+        onClose={() => setEditScheduleSubject(null)}
+      />
+
+      {/* Delete Subject Confirmation */}
+      <DeleteSubjectDialog
+        subject={deleteSubject}
+        open={!!deleteSubject}
+        onClose={() => setDeleteSubject(null)}
+      />
     </div>
+  );
+}
+
+function StudentListDialog({ subject, open, onClose }: { subject: Subject | null; open: boolean; onClose: () => void }) {
+  const { data: students, isLoading } = useSubjectStudents(subject?.id || 0);
+
+  if (!subject) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <div className="flex items-center justify-between">
+            <div>
+              <DialogTitle className="text-xl">{subject.name}</DialogTitle>
+              <DialogDescription className="flex items-center gap-2 mt-1">
+                <span className="font-mono text-xs bg-secondary px-2 py-0.5 rounded">{subject.code}</span>
+                <span>•</span>
+                <span>{students?.length || 0} Students Enrolled</span>
+              </DialogDescription>
+            </div>
+          </div>
+        </DialogHeader>
+        
+        <div className="flex-1 overflow-auto">
+          {isLoading ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div key={i} className="h-12 bg-gray-100 rounded animate-pulse" />
+              ))}
+            </div>
+          ) : students && students.length > 0 ? (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-12">#</TableHead>
+                  <TableHead>Student</TableHead>
+                  <TableHead>Student Number</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {students.map((student, index) => (
+                  <TableRow key={student.id}>
+                    <TableCell className="text-muted-foreground">{index + 1}</TableCell>
+                    <TableCell>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                            {student.fullName.split(' ').map(n => n[0]).join('').toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <span className="font-medium">{student.fullName}</span>
+                      </div>
+                    </TableCell>
+                    <TableCell className="font-mono text-muted-foreground">
+                      {String(student.id).padStart(6, '0')}
+                    </TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="w-16 h-16 rounded-full bg-gray-100 flex items-center justify-center mb-4">
+                <Users className="w-8 h-8 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-medium text-gray-900">No students enrolled</h3>
+              <p className="text-muted-foreground mt-1">Students will appear here once they enroll in this subject.</p>
+            </div>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Close</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -219,5 +386,219 @@ function CreateSubjectDialog() {
         </Form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function EditScheduleDialog({ subject, open, onClose }: { subject: Subject | null; open: boolean; onClose: () => void }) {
+  const { data: schedules, isLoading } = useSubjectSchedules(subject?.id || 0);
+  const { mutate: createSchedule, isPending: isCreating } = useCreateSchedule();
+  const { mutate: deleteSchedule } = useDeleteSchedule();
+  const [showAddForm, setShowAddForm] = useState(false);
+  
+  const [newSchedule, setNewSchedule] = useState({
+    dayOfWeek: "Monday",
+    startTime: "09:00",
+    endTime: "10:30",
+    room: ""
+  });
+
+  const dayOrder = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
+  
+  const formatTime = (time: string) => {
+    const [hours, minutes] = time.split(':');
+    const h = parseInt(hours);
+    const ampm = h >= 12 ? 'PM' : 'AM';
+    const formattedHour = h % 12 || 12;
+    return `${formattedHour}:${minutes} ${ampm}`;
+  };
+
+  const handleAddSchedule = () => {
+    if (!subject || !newSchedule.room) return;
+    
+    createSchedule({
+      subjectId: subject.id,
+      dayOfWeek: newSchedule.dayOfWeek as any,
+      startTime: newSchedule.startTime,
+      endTime: newSchedule.endTime,
+      room: newSchedule.room
+    }, {
+      onSuccess: () => {
+        setShowAddForm(false);
+        setNewSchedule({ dayOfWeek: "Monday", startTime: "09:00", endTime: "10:30", room: "" });
+      }
+    });
+  };
+
+  const handleDeleteSchedule = (scheduleId: number) => {
+    deleteSchedule(scheduleId);
+  };
+
+  if (!subject) return null;
+
+  return (
+    <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <DialogContent className="max-w-lg">
+        <DialogHeader>
+          <DialogTitle>Edit Schedule</DialogTitle>
+          <DialogDescription>
+            Manage the schedule for {subject.name} ({subject.code})
+          </DialogDescription>
+        </DialogHeader>
+        
+        <div className="space-y-4">
+          {isLoading ? (
+            <div className="space-y-2">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="h-12 bg-gray-100 rounded animate-pulse" />
+              ))}
+            </div>
+          ) : schedules && schedules.length > 0 ? (
+            <div className="space-y-2">
+              {schedules
+                .sort((a, b) => dayOrder.indexOf(a.dayOfWeek) - dayOrder.indexOf(b.dayOfWeek))
+                .map((schedule) => (
+                  <div key={schedule.id} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg border">
+                    <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 min-w-[100px]">
+                        <Calendar className="h-4 w-4 text-muted-foreground" />
+                        <span className="font-medium text-sm">{schedule.dayOfWeek}</span>
+                      </div>
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Clock className="h-3.5 w-3.5" />
+                        <span>{formatTime(schedule.startTime)} - {formatTime(schedule.endTime)}</span>
+                      </div>
+                      <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                        <MapPin className="h-3.5 w-3.5" />
+                        <span>{schedule.room}</span>
+                      </div>
+                    </div>
+                    <Button 
+                      variant="ghost" 
+                      size="icon" 
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => handleDeleteSchedule(schedule.id)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </div>
+                ))}
+            </div>
+          ) : (
+            <div className="text-center py-6 text-muted-foreground bg-gray-50 rounded-lg border border-dashed">
+              No schedules set. Add one below.
+            </div>
+          )}
+
+          {showAddForm ? (
+            <div className="p-4 border rounded-lg space-y-4 bg-gray-50">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Day</label>
+                  <Select value={newSchedule.dayOfWeek} onValueChange={(v) => setNewSchedule({...newSchedule, dayOfWeek: v})}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {dayOrder.map(day => (
+                        <SelectItem key={day} value={day}>{day}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Room</label>
+                  <Input 
+                    placeholder="e.g. Q3212" 
+                    value={newSchedule.room}
+                    onChange={(e) => setNewSchedule({...newSchedule, room: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Start Time</label>
+                  <Input 
+                    type="time" 
+                    value={newSchedule.startTime}
+                    onChange={(e) => setNewSchedule({...newSchedule, startTime: e.target.value})}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">End Time</label>
+                  <Input 
+                    type="time" 
+                    value={newSchedule.endTime}
+                    onChange={(e) => setNewSchedule({...newSchedule, endTime: e.target.value})}
+                  />
+                </div>
+              </div>
+              <div className="flex gap-2 justify-end">
+                <Button variant="ghost" size="sm" onClick={() => setShowAddForm(false)}>Cancel</Button>
+                <Button size="sm" onClick={handleAddSchedule} disabled={isCreating || !newSchedule.room}>
+                  {isCreating ? "Adding..." : "Add Schedule"}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <Button variant="outline" className="w-full" onClick={() => setShowAddForm(true)}>
+              <Plus className="w-4 h-4 mr-2" />
+              Add Schedule
+            </Button>
+          )}
+        </div>
+
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Done</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function DeleteSubjectDialog({ subject, open, onClose }: { subject: Subject | null; open: boolean; onClose: () => void }) {
+  const { toast } = useToast();
+  const queryClient = useQueryClient();
+  
+  const { mutate: deleteSubject, isPending } = useMutation({
+    mutationFn: async (id: number) => {
+      const res = await fetch(`/api/subjects/${id}`, {
+        method: 'DELETE',
+      });
+      if (!res.ok) throw new Error("Failed to delete subject");
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: [api.subjects.list.path] });
+      toast({ title: "Subject Deleted", description: "The subject has been removed." });
+      onClose();
+    },
+    onError: () => {
+      toast({ title: "Error", description: "Failed to delete subject.", variant: "destructive" });
+    }
+  });
+
+  if (!subject) return null;
+
+  return (
+    <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete Subject</AlertDialogTitle>
+          <AlertDialogDescription>
+            Are you sure you want to delete <strong>{subject.name}</strong> ({subject.code})?
+            This action cannot be undone. All schedules and enrollment data for this subject will also be removed.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            onClick={() => deleteSubject(subject.id)}
+            disabled={isPending}
+          >
+            {isPending ? "Deleting..." : "Delete Subject"}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   );
 }
