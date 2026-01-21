@@ -85,9 +85,9 @@ export default function AttendanceHistory() {
       });
     }
     
-    // Filter by status
+    // Filter by status (case-insensitive)
     if (selectedStatus !== "all") {
-      filtered = filtered.filter(r => r.status === selectedStatus);
+      filtered = filtered.filter(r => r.status?.toLowerCase() === selectedStatus.toLowerCase());
     }
     
     // Filter by search (student name)
@@ -115,13 +115,13 @@ export default function AttendanceHistory() {
     return grouped;
   }, [filteredRecords]);
 
-  // Calculate summary stats
+  // Calculate summary stats (case-insensitive)
   const stats = useMemo(() => {
     const total = filteredRecords.length;
-    const present = filteredRecords.filter(r => r.status === 'present').length;
-    const late = filteredRecords.filter(r => r.status === 'late').length;
-    const absent = filteredRecords.filter(r => r.status === 'absent').length;
-    const excused = filteredRecords.filter(r => r.status === 'excused').length;
+    const present = filteredRecords.filter(r => r.status?.toLowerCase() === 'present').length;
+    const late = filteredRecords.filter(r => r.status?.toLowerCase() === 'late').length;
+    const absent = filteredRecords.filter(r => r.status?.toLowerCase() === 'absent').length;
+    const excused = filteredRecords.filter(r => r.status?.toLowerCase() === 'excused').length;
     return { total, present, late, absent, excused };
   }, [filteredRecords]);
 
@@ -140,7 +140,8 @@ export default function AttendanceHistory() {
   }, []);
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
+    const normalizedStatus = status?.toLowerCase();
+    switch (normalizedStatus) {
       case 'present':
         return <Badge className="bg-green-100 text-green-800 hover:bg-green-100"><CheckCircle2 className="w-3 h-3 mr-1" />Present</Badge>;
       case 'late':
@@ -325,10 +326,10 @@ export default function AttendanceHistory() {
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead className="w-[200px]">Student</TableHead>
-                          <TableHead className="w-[180px]">Subject</TableHead>
-                          <TableHead className="w-[100px]">Time In</TableHead>
-                          <TableHead className="w-[120px]">Status</TableHead>
+                          <TableHead>Student</TableHead>
+                          <TableHead>Subject</TableHead>
+                          <TableHead>Time In</TableHead>
+                          <TableHead>Status</TableHead>
                           <TableHead>Remarks</TableHead>
                         </TableRow>
                       </TableHeader>

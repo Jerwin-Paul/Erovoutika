@@ -65,16 +65,19 @@ function StudentDashboard() {
   const { data: attendance } = useAttendance();
   const { data: subjects } = useSubjects();
 
-  // Calculate simple stats
+  // Calculate simple stats (case-insensitive status comparison)
   const totalClasses = attendance?.length || 0;
-  const presentCount = attendance?.filter(a => a.status === 'present').length || 0;
-  const attendanceRate = totalClasses ? Math.round((presentCount / totalClasses) * 100) : 100;
+  const presentCount = attendance?.filter(a => a.status?.toLowerCase() === 'present').length || 0;
+  const lateCount = attendance?.filter(a => a.status?.toLowerCase() === 'late').length || 0;
+  const absentCount = attendance?.filter(a => a.status?.toLowerCase() === 'absent').length || 0;
+  const excusedCount = attendance?.filter(a => a.status?.toLowerCase() === 'excused').length || 0;
+  const attendanceRate = totalClasses ? Math.round(((presentCount + lateCount) / totalClasses) * 100) : 100;
 
   const chartData = [
     { name: 'Present', value: presentCount, color: '#22c55e' },
-    { name: 'Late', value: attendance?.filter(a => a.status === 'late').length || 0, color: '#f97316' },
-    { name: 'Absent', value: attendance?.filter(a => a.status === 'absent').length || 0, color: '#ef4444' },
-    { name: 'Excused', value: attendance?.filter(a => a.status === 'excused').length || 0, color: '#3b82f6' },
+    { name: 'Late', value: lateCount, color: '#f97316' },
+    { name: 'Absent', value: absentCount, color: '#ef4444' },
+    { name: 'Excused', value: excusedCount, color: '#3b82f6' },
   ];
 
   return (
@@ -95,7 +98,7 @@ function StudentDashboard() {
         />
         <StatsCard 
           title="Absences" 
-          value={attendance?.filter(a => a.status === 'absent').length || 0} 
+          value={absentCount} 
           icon={AlertCircle} 
           description="Total unexcused"
         />
@@ -142,32 +145,46 @@ function StudentDashboard() {
             <CardDescription>Status breakdown</CardDescription>
           </CardHeader>
           <CardContent className="h-[300px]">
-            <ResponsiveContainer width="100%" height="100%">
-              <PieChart>
-                <Pie
-                  data={chartData}
-                  cx="50%"
-                  cy="50%"
-                  innerRadius={60}
-                  outerRadius={80}
-                  paddingAngle={5}
-                  dataKey="value"
-                >
-                  {chartData.map((entry, index) => (
-                    <Cell key={`cell-${index}`} fill={entry.color} />
+            {totalClasses > 0 ? (
+              <>
+                <ResponsiveContainer width="100%" height="80%">
+                  <PieChart>
+                    <Pie
+                      data={chartData.filter(d => d.value > 0)}
+                      cx="50%"
+                      cy="50%"
+                      innerRadius={50}
+                      outerRadius={70}
+                      paddingAngle={3}
+                      dataKey="value"
+                      label={({ name, value, percent }) => `${value} (${(percent * 100).toFixed(0)}%)`}
+                      labelLine={false}
+                    >
+                      {chartData.filter(d => d.value > 0).map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={entry.color} />
+                      ))}
+                    </Pie>
+                    <Tooltip 
+                      formatter={(value: number, name: string) => [`${value} classes`, name]}
+                    />
+                  </PieChart>
+                </ResponsiveContainer>
+                <div className="flex flex-wrap justify-center gap-3 text-xs text-muted-foreground">
+                  {chartData.map(item => (
+                    <div key={item.name} className="flex items-center gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: item.color }} />
+                      <span>{item.name}: {item.value}</span>
+                    </div>
                   ))}
-                </Pie>
-                <Tooltip />
-              </PieChart>
-            </ResponsiveContainer>
-            <div className="flex justify-center gap-4 text-xs text-muted-foreground mt-4">
-              {chartData.map(item => (
-                <div key={item.name} className="flex items-center gap-1">
-                  <div className="w-2 h-2 rounded-full" style={{ backgroundColor: item.color }} />
-                  <span>{item.name}</span>
                 </div>
-              ))}
-            </div>
+              </>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-muted-foreground">
+                <CalendarCheck className="w-12 h-12 mb-3 opacity-30" />
+                <p className="text-sm">No attendance data yet</p>
+                <p className="text-xs">Your records will appear here</p>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>

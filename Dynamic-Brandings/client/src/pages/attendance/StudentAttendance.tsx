@@ -41,22 +41,22 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { format, parseISO } from "date-fns";
 
-// Status badge component
+// Status badge component - matches teacher's design
 const StatusBadge = ({ status }: { status: string }) => {
-  const statusConfig = {
-    present: { label: "Present", className: "bg-green-100 text-green-800 border-green-200" },
-    late: { label: "Late", className: "bg-yellow-100 text-yellow-800 border-yellow-200" },
-    absent: { label: "Absent", className: "bg-red-100 text-red-800 border-red-200" },
-    excused: { label: "Excused", className: "bg-blue-100 text-blue-800 border-blue-200" },
-  };
+  const normalizedStatus = status?.toLowerCase() || 'absent';
   
-  const config = statusConfig[status as keyof typeof statusConfig] || statusConfig.absent;
-  
-  return (
-    <Badge variant="outline" className={config.className}>
-      {config.label}
-    </Badge>
-  );
+  switch (normalizedStatus) {
+    case 'present':
+      return <Badge className="bg-green-100 text-green-800 hover:bg-green-100"><CheckCircle2 className="w-3 h-3 mr-1" />Present</Badge>;
+    case 'late':
+      return <Badge className="bg-yellow-100 text-yellow-800 hover:bg-yellow-100"><Clock className="w-3 h-3 mr-1" />Late</Badge>;
+    case 'absent':
+      return <Badge className="bg-red-100 text-red-800 hover:bg-red-100"><XCircle className="w-3 h-3 mr-1" />Absent</Badge>;
+    case 'excused':
+      return <Badge className="bg-blue-100 text-blue-800 hover:bg-blue-100"><AlertCircle className="w-3 h-3 mr-1" />Excused</Badge>;
+    default:
+      return <Badge variant="secondary">{status}</Badge>;
+  }
 };
 
 export default function StudentAttendance() {
@@ -115,10 +115,10 @@ export default function StudentAttendance() {
     
     return subjects.map(subject => {
       const subjectRecords = attendance.filter(r => r.subjectId === subject.id);
-      const present = subjectRecords.filter(r => r.status === 'present').length;
-      const late = subjectRecords.filter(r => r.status === 'late').length;
-      const absent = subjectRecords.filter(r => r.status === 'absent').length;
-      const excused = subjectRecords.filter(r => r.status === 'excused').length;
+      const present = subjectRecords.filter(r => r.status?.toLowerCase() === 'present').length;
+      const late = subjectRecords.filter(r => r.status?.toLowerCase() === 'late').length;
+      const absent = subjectRecords.filter(r => r.status?.toLowerCase() === 'absent').length;
+      const excused = subjectRecords.filter(r => r.status?.toLowerCase() === 'excused').length;
       const total = subjectRecords.length;
       const attendanceRate = total > 0 ? ((present + late) / total * 100).toFixed(1) : '0.0';
       
@@ -138,10 +138,10 @@ export default function StudentAttendance() {
   const overallStats = useMemo(() => {
     if (!attendance) return { present: 0, late: 0, absent: 0, excused: 0, total: 0, rate: '0.0' };
     
-    const present = attendance.filter(r => r.status === 'present').length;
-    const late = attendance.filter(r => r.status === 'late').length;
-    const absent = attendance.filter(r => r.status === 'absent').length;
-    const excused = attendance.filter(r => r.status === 'excused').length;
+    const present = attendance.filter(r => r.status?.toLowerCase() === 'present').length;
+    const late = attendance.filter(r => r.status?.toLowerCase() === 'late').length;
+    const absent = attendance.filter(r => r.status?.toLowerCase() === 'absent').length;
+    const excused = attendance.filter(r => r.status?.toLowerCase() === 'excused').length;
     const total = attendance.length;
     const rate = total > 0 ? ((present + late) / total * 100).toFixed(1) : '0.0';
     
