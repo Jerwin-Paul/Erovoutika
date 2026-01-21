@@ -1,6 +1,7 @@
 import { ReactNode, useState } from "react";
 import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
+import { useSystemSettings } from "@/hooks/use-system-settings";
 import { 
   LogOut, 
   LayoutDashboard, 
@@ -21,6 +22,7 @@ interface LayoutProps {
 
 export function Layout({ children }: LayoutProps) {
   const { user, logout } = useAuth();
+  const { settings } = useSystemSettings();
   const [location] = useLocation();
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -81,11 +83,15 @@ export function Layout({ children }: LayoutProps) {
         <div className="p-6 border-b border-border/50">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white shadow-lg shadow-primary/20">
-              <GraduationCap className="w-6 h-6" />
+              {settings.logoUrl ? (
+                <img src={settings.logoUrl} alt="Logo" className="w-6 h-6 object-contain" />
+              ) : (
+                <GraduationCap className="w-6 h-6" />
+              )}
             </div>
             <div>
-              <h1 className="font-display font-bold text-xl text-primary leading-none">AttendED</h1>
-              <span className="text-xs text-muted-foreground font-medium">De La Salle University</span>
+              <h1 className="font-display font-bold text-xl text-primary leading-none">{settings.systemTitle}</h1>
+              <span className="text-xs text-muted-foreground font-medium">{settings.schoolName}</span>
             </div>
           </div>
         </div>
@@ -122,8 +128,12 @@ export function Layout({ children }: LayoutProps) {
         {/* Mobile Header */}
         <div className="md:hidden bg-white border-b border-border p-4 flex items-center justify-between sticky top-0 z-30">
           <div className="flex items-center gap-2">
-            <GraduationCap className="w-6 h-6 text-primary" />
-            <span className="font-bold text-primary">AttendED</span>
+            {settings.logoUrl ? (
+              <img src={settings.logoUrl} alt="Logo" className="w-6 h-6 object-contain" />
+            ) : (
+              <GraduationCap className="w-6 h-6 text-primary" />
+            )}
+            <span className="font-bold text-primary">{settings.systemTitle}</span>
           </div>
           <Button variant="ghost" size="icon" onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}>
             {isMobileMenuOpen ? <X className="w-6 h-6" /> : <Menu className="w-6 h-6" />}

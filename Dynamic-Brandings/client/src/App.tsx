@@ -4,6 +4,7 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { useAuth } from "@/hooks/use-auth";
+import { SystemSettingsProvider } from "@/hooks/use-system-settings";
 import { Loader2 } from "lucide-react";
 
 // Pages
@@ -11,6 +12,7 @@ import Login from "@/pages/auth/Login";
 import Dashboard from "@/pages/dashboard/Dashboard";
 import SubjectList from "@/pages/subjects/SubjectList";
 import UserManagement from "@/pages/admin/UserManagement";
+import SystemSettings from "@/pages/settings/SystemSettings"; {/* added new vince */}
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout/Layout";
 
@@ -65,6 +67,10 @@ function Router() {
         <ProtectedRoute component={UserManagement} allowedRoles={['superadmin']} />
       </Route>
 
+      <Route path="/settings">
+        <ProtectedRoute component={SystemSettings} allowedRoles={['superadmin']} />
+      </Route>
+
       {/* Default Route */}
       <Route path="/" component={RootRedirect} />
 
@@ -76,10 +82,12 @@ function Router() {
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
-      <TooltipProvider>
-        <Toaster />
-        <Router />
-      </TooltipProvider>
+      <SystemSettingsProvider>
+        <TooltipProvider>
+          <Toaster />
+          <Router />
+        </TooltipProvider>
+      </SystemSettingsProvider>
     </QueryClientProvider>
   );
 }

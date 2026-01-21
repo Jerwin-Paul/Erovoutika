@@ -6,7 +6,7 @@
 
 :root {
   /* De La Salle Green Base */
-  --primary: 152 100% 20%;      /* #006837 */
+  --primary: 152 100% 20%;      /* #006837 = green. and 197 71% 73%; for blue.*/
   --primary-foreground: 0 0% 100%;
   
   --secondary: 152 30% 96%;
