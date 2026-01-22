@@ -15,9 +15,10 @@ interface TimePickerProps {
 
 export function TimePicker({ value, onChange, className }: TimePickerProps) {
   const [hours, minutes] = value ? value.split(":") : ["09", "00"];
-  const hour24 = parseInt(hours) || 9;
+  const parsedHour = parseInt(hours);
+  const hour24 = isNaN(parsedHour) ? 9 : parsedHour;
   const min = parseInt(minutes) || 0;
-  
+
   const isPM = hour24 >= 12;
   const hour12 = hour24 % 12 || 12;
 
@@ -66,9 +67,9 @@ export function TimePicker({ value, onChange, className }: TimePickerProps) {
           ))}
         </SelectContent>
       </Select>
-      
+
       <span className="text-muted-foreground font-bold">:</span>
-      
+
       <Select value={min.toString().padStart(2, "0")} onValueChange={handleMinuteChange}>
         <SelectTrigger className="flex-1 h-9 px-2">
           <SelectValue placeholder="MM" />
@@ -81,7 +82,7 @@ export function TimePicker({ value, onChange, className }: TimePickerProps) {
           ))}
         </SelectContent>
       </Select>
-      
+
       <Select value={isPM ? "PM" : "AM"} onValueChange={handlePeriodChange}>
         <SelectTrigger className="flex-1 h-9 px-2">
           <SelectValue />
