@@ -4,8 +4,8 @@
   "outputDirectory": "dist",
   "framework": null,
   "rootDirectory": "Dynamic-Brandings",
-  "routes": [
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
+}
 }
