@@ -1,7 +1,10 @@
 {
-  "buildCommand": "cd Dynamic-Brandings && npm install && npm run build:client",
-  "outputDirectory": "Dynamic-Brandings/dist",
+  "version": 2,
+  "buildCommand": "npm install && npm run build:client",
+  "outputDirectory": "dist",
   "framework": null,
+  "installCommand": "npm install",
+  "rootDirectory": "Dynamic-Brandings",
   "routes": [
     { "handle": "filesystem" },
     { "src": "/(.*)", "dest": "/index.html" }
