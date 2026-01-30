@@ -67,6 +67,9 @@ export default function Attendance() {
   const [currentQRToken, setCurrentQRToken] = useState<string>("");
   const [scanCount, setScanCount] = useState(0);
   const [lastAttendanceCount, setLastAttendanceCount] = useState(0);
+  
+  // Track if session was ended (show Resume instead of Start)
+  const [sessionEnded, setSessionEnded] = useState(false);
 
   // Restore FULL session state from localStorage on mount (runs once)
   useEffect(() => {
@@ -84,6 +87,7 @@ export default function Attendance() {
           setWasResumed(session.wasResumed || false);
           setCurrentQRToken(session.qrToken || "");
           setScanCount(session.scanCount || 0);
+          setSessionEnded(session.sessionEnded || false);
           // Restore attendance records if saved
           if (session.attendanceRecords && session.attendanceRecords.length > 0) {
             setAttendanceRecords(session.attendanceRecords);
@@ -110,6 +114,7 @@ export default function Attendance() {
       wasResumed,
       qrToken: currentQRToken,
       scanCount,
+      sessionEnded,
       attendanceRecords // Save the actual records!
     };
     localStorage.setItem('attendanceSession', JSON.stringify(session));
@@ -301,9 +306,11 @@ export default function Attendance() {
   useEffect(() => {
     if (sessionState === 'active' && todayAttendance) {
       const currentCount = todayAttendance.length;
-      if (currentCount > lastAttendanceCount && lastAttendanceCount > 0) {
+      // Regenerate if count increased (new student scanned)
+      // The lastAttendanceCount is initialized when session starts
+      if (currentCount > lastAttendanceCount) {
         // A new scan was detected - regenerate QR code
-        generateNewToken(wasResumed);
+        generateNewToken(wasResumed || sessionEnded);
         setScanCount(prev => prev + 1);
         toast({
           title: "Student Checked In",
@@ -312,7 +319,7 @@ export default function Attendance() {
       }
       setLastAttendanceCount(currentCount);
     }
-  }, [todayAttendance, sessionState, lastAttendanceCount, wasResumed, generateNewToken, toast]);
+  }, [todayAttendance, sessionState, lastAttendanceCount, wasResumed, sessionEnded, generateNewToken, toast]);
 
   // QR Code data structure - contains token, subject, and timestamp for validation
   const qrCodeData = useMemo(() => {
@@ -359,12 +366,25 @@ export default function Attendance() {
     setScanCount(0);
     // Reset attendance count tracking for auto-regeneration
     setLastAttendanceCount(todayAttendance?.length || 0);
+    
+    // If session was previously ended (Resume button was shown), generate late QR codes
+    const shouldBeLate = sessionEnded;
+    
     // Generate initial QR code token when session starts
-    await generateNewToken(false);
-    toast({
-      title: "Session Started",
-      description: "Students can now scan the QR code to check in."
-    });
+    await generateNewToken(shouldBeLate);
+    
+    if (shouldBeLate) {
+      setWasResumed(true); // This ensures continued scans are also late
+      toast({
+        title: "Session Resumed",
+        description: "Students scanning now will be marked as late."
+      });
+    } else {
+      toast({
+        title: "Session Started",
+        description: "Students can now scan the QR code to check in."
+      });
+    }
   };
 
   const handlePauseSession = async () => {
@@ -398,6 +418,7 @@ export default function Attendance() {
   const handleEndSession = async () => {
     setSessionState('inactive');
     setWasResumed(false);
+    setSessionEnded(true); // Mark that session was ended - next start should be Resume (late mode)
     
     // Deactivate QR code in database
     if (selectedSubjectId) {
@@ -653,6 +674,7 @@ export default function Attendance() {
     setCurrentQRToken("");
     setScanCount(0);
     setWasResumed(false);
+    setSessionEnded(false); // Reset - next start will be normal Start (present mode)
     
     // Refresh attendance data
     await refetchAttendance();
@@ -771,15 +793,28 @@ export default function Attendance() {
             {/* Control Buttons */}
             <div className="space-y-3">
               {sessionState === 'inactive' ? (
-                <Button 
-                  className="w-full bg-primary hover:bg-primary/90 text-white"
-                  size="lg"
-                  onClick={handleStartSession}
-                  disabled={!selectedSubjectId}
-                >
-                  <Play className="w-4 h-4 mr-2" />
-                  Start
-                </Button>
+                // Show Resume (yellow) if session was ended, otherwise Show Start (green)
+                sessionEnded ? (
+                  <Button 
+                    className="w-full bg-yellow-500 hover:bg-yellow-600 text-white"
+                    size="lg"
+                    onClick={handleStartSession}
+                    disabled={!selectedSubjectId}
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    Resume
+                  </Button>
+                ) : (
+                  <Button 
+                    className="w-full bg-primary hover:bg-primary/90 text-white"
+                    size="lg"
+                    onClick={handleStartSession}
+                    disabled={!selectedSubjectId}
+                  >
+                    <Play className="w-4 h-4 mr-2" />
+                    Start
+                  </Button>
+                )
               ) : sessionState === 'active' ? (
                 <Button 
                   className="w-full bg-yellow-500 hover:bg-yellow-600 text-white"
@@ -825,8 +860,8 @@ export default function Attendance() {
               <p className="text-center text-sm text-muted-foreground mt-4">
                 {sessionState === 'paused' ? (
                   <>Session paused for <strong>{selectedSubject?.name}</strong></>
-                ) : wasResumed ? (
-                  <>Session resumed for <strong>{selectedSubject?.name}</strong> <span className="text-red-500">(Late scans → Absent)</span></>
+                ) : (wasResumed || sessionEnded) ? (
+                  <>Session resumed for <strong>{selectedSubject?.name}</strong> <span className="text-yellow-600">(Scans → Late)</span></>
                 ) : (
                   <>Session active for <strong>{selectedSubject?.name}</strong></>
                 )}
