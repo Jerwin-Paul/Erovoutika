@@ -137,6 +137,40 @@ export default function Attendance() {
     }
   }, [sessionState, selectedSubjectId, refetchAttendance]);
 
+  // Sync local records with database when todayAttendance changes (e.g., student scanned QR)
+  useEffect(() => {
+    if (!todayAttendance || !students || students.length === 0) return;
+    if (!hasRestoredSession) return;
+    
+    // Update local records to reflect any database changes from student scans
+    setAttendanceRecords(prev => {
+      const updated = prev.map(record => {
+        const dbRecord = todayAttendance.find(a => a.studentId === record.studentId);
+        if (dbRecord && dbRecord.status) {
+          // Database has a status (student scanned or was manually updated)
+          // Only update if local status is null OR if database status is different
+          if (!record.status || (record.status !== dbRecord.status && dbRecord.status !== 'absent')) {
+            return {
+              ...record,
+              status: dbRecord.status as AttendanceStatus,
+              timeIn: dbRecord.timeIn 
+                ? new Date(dbRecord.timeIn).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Manila' })
+                : record.timeIn
+            };
+          }
+        }
+        return record;
+      });
+      
+      // Only update if something actually changed
+      const hasChanges = updated.some((r, i) => 
+        r.status !== prev[i]?.status || r.timeIn !== prev[i]?.timeIn
+      );
+      
+      return hasChanges ? updated : prev;
+    });
+  }, [todayAttendance, students, hasRestoredSession]);
+
   // Initialize attendance records from database ONLY when subject changes or on first load
   // This effect should NOT overwrite local edits - it only initializes
   useEffect(() => {
@@ -374,30 +408,50 @@ export default function Attendance() {
     }
     setCurrentQRToken(""); // Invalidate QR code
     
-    // Mark all students without status as absent in the database
-    const studentsToMarkAbsent = attendanceRecords.filter(r => !r.status);
-    for (const record of studentsToMarkAbsent) {
-      try {
-        await supabase
-          .from("attendance")
-          .insert({
-            student_id: record.studentId,
-            subject_id: parseInt(selectedSubjectId),
-            date: today,
-            status: 'absent',
-            time_in: new Date().toISOString(),
-            remarks: 'Marked absent - did not scan QR'
-          });
-      } catch (error) {
-        console.error("Failed to mark absent:", error);
+    // Refresh attendance from database first to get latest student scans
+    await refetchAttendance();
+    
+    // Get the LATEST attendance records from database
+    const { data: latestAttendance } = await supabase
+      .from('attendance')
+      .select('student_id, status')
+      .eq('subject_id', parseInt(selectedSubjectId))
+      .eq('date', today);
+    
+    const dbStudentIds = new Set((latestAttendance || []).map(a => a.student_id));
+    
+    // Mark only students who DON'T have ANY record in database as absent
+    let absentCount = 0;
+    for (const record of attendanceRecords) {
+      // Check if student already has a record in the DATABASE (not just local state)
+      if (!dbStudentIds.has(record.studentId)) {
+        try {
+          await supabase
+            .from("attendance")
+            .insert({
+              student_id: record.studentId,
+              subject_id: parseInt(selectedSubjectId),
+              date: today,
+              status: 'absent',
+              time_in: new Date().toISOString(),
+              remarks: 'Marked absent - did not scan QR'
+            });
+          absentCount++;
+        } catch (error) {
+          console.error("Failed to mark absent:", error);
+        }
       }
     }
     
-    // Update local state
-    setAttendanceRecords(prev => prev.map(record => ({
-      ...record,
-      status: record.status || 'absent'
-    })));
+    // Update local state with database values
+    const updatedRecords = attendanceRecords.map(record => {
+      const dbRecord = (latestAttendance || []).find(a => a.student_id === record.studentId);
+      return {
+        ...record,
+        status: dbRecord?.status as AttendanceStatus || 'absent'
+      };
+    });
+    setAttendanceRecords(updatedRecords);
     
     // Refresh attendance data
     refetchAttendance();
@@ -407,7 +461,7 @@ export default function Attendance() {
     
     toast({
       title: "Session Ended",
-      description: `${studentsToMarkAbsent.length} students marked as absent.`
+      description: `${absentCount} students marked as absent.`
     });
   };
 
