@@ -235,6 +235,27 @@ export async function registerRoutes(
     res.status(201).json(record);
   });
 
+  // Update an existing attendance record (teacher only)
+  app.patch('/api/attendance/:id', async (req, res) => {
+    if (!req.isAuthenticated()) return res.sendStatus(401);
+    const user = req.user as any;
+    
+    if (user.role !== "teacher" && user.role !== "superadmin") {
+      return res.status(403).json({ message: "Only teachers can update attendance records" });
+    }
+    
+    const id = parseInt(req.params.id as string);
+    const { status, remarks } = req.body;
+    
+    try {
+      const updated = await storage.updateAttendance(id, { status, remarks });
+      res.json(updated);
+    } catch (error) {
+      console.error('Error updating attendance:', error);
+      res.status(500).json({ error: 'Failed to update attendance record' });
+    }
+  });
+
   // Get attendance records for teacher's subjects
   app.get('/api/attendance/teacher', async (req, res) => {
     if (!req.isAuthenticated()) return res.sendStatus(401);
@@ -269,27 +290,23 @@ export async function registerRoutes(
       return res.status(403).json({ message: "Only students can scan QR codes" });
     }
 
-    const { qrCode, subjectId: providedSubjectId } = req.body;
+    const { qrCode } = req.body;
 
-    // For demo purposes, if no actual QR code is provided, use the providedSubjectId
-    // In production, we would validate the actual QR code
+    // Require valid QR code
+    if (!qrCode) {
+      return res.status(400).json({ message: "QR code is required" });
+    }
+
     let subjectId: number;
     let isLate = false;
 
-    if (qrCode && !qrCode.startsWith('SCAN_')) {
-      // Try to validate actual QR code
-      const result = await storage.validateAndConsumeQrCode(qrCode);
-      if (!result) {
-        return res.status(400).json({ message: "Invalid or expired QR code" });
-      }
-      subjectId = result.subjectId;
-      isLate = result.isLate;
-    } else if (providedSubjectId) {
-      // Demo mode - use provided subject ID
-      subjectId = providedSubjectId;
-    } else {
-      return res.status(400).json({ message: "QR code or subject ID required" });
+    // Validate the QR code against database
+    const result = await storage.validateAndConsumeQrCode(qrCode);
+    if (!result) {
+      return res.status(400).json({ message: "Invalid or expired QR code. Please ask your teacher to regenerate." });
     }
+    subjectId = result.subjectId;
+    isLate = result.isLate;
 
     // Check if student is enrolled in this subject
     const students = await storage.getSubjectStudents(subjectId);

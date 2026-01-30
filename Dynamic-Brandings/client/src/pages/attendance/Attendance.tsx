@@ -58,13 +58,62 @@ export default function Attendance() {
   const [isEditing, setIsEditing] = useState(false);
   // Session states: 'inactive' | 'active' | 'paused'
   const [sessionState, setSessionState] = useState<'inactive' | 'active' | 'paused'>('inactive');
-  const [wasResumed, setWasResumed] = useState(false); // Track if session was paused and resumed
+  const [wasResumed, setWasResumed] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [attendanceRecords, setAttendanceRecords] = useState<StudentAttendance[]>([]);
+  const [hasRestoredSession, setHasRestoredSession] = useState(false);
   
-  // QR Code state - unique token that regenerates after each scan
+  // QR Code state
   const [currentQRToken, setCurrentQRToken] = useState<string>("");
   const [scanCount, setScanCount] = useState(0);
+  const [lastAttendanceCount, setLastAttendanceCount] = useState(0);
+
+  // Restore FULL session state from localStorage on mount (runs once)
+  useEffect(() => {
+    const savedSession = localStorage.getItem('attendanceSession');
+    if (savedSession) {
+      try {
+        const session = JSON.parse(savedSession);
+        const sessionDate = session.date;
+        const today = format(new Date(), 'yyyy-MM-dd');
+        
+        // Only restore if it's from today
+        if (sessionDate === today) {
+          setSelectedSubjectId(session.subjectId || "");
+          setSessionState(session.sessionState || 'inactive');
+          setWasResumed(session.wasResumed || false);
+          setCurrentQRToken(session.qrToken || "");
+          setScanCount(session.scanCount || 0);
+          // Restore attendance records if saved
+          if (session.attendanceRecords && session.attendanceRecords.length > 0) {
+            setAttendanceRecords(session.attendanceRecords);
+          }
+        } else {
+          localStorage.removeItem('attendanceSession');
+        }
+      } catch (e) {
+        console.error("Failed to restore session:", e);
+        localStorage.removeItem('attendanceSession');
+      }
+    }
+    setHasRestoredSession(true);
+  }, []);
+
+  // Persist FULL session state to localStorage whenever anything changes
+  useEffect(() => {
+    if (!hasRestoredSession) return; // Don't save until we've tried to restore
+    
+    const session = {
+      date: format(new Date(), 'yyyy-MM-dd'),
+      subjectId: selectedSubjectId,
+      sessionState,
+      wasResumed,
+      qrToken: currentQRToken,
+      scanCount,
+      attendanceRecords // Save the actual records!
+    };
+    localStorage.setItem('attendanceSession', JSON.stringify(session));
+  }, [sessionState, selectedSubjectId, wasResumed, currentQRToken, scanCount, attendanceRecords, hasRestoredSession]);
   
   // Get students for selected subject
   const { data: students } = useSubjectStudents(
@@ -88,35 +137,46 @@ export default function Attendance() {
     }
   }, [sessionState, selectedSubjectId, refetchAttendance]);
 
-  // Sync attendance records with database when new scans come in or students load
+  // Initialize attendance records from database ONLY when subject changes or on first load
+  // This effect should NOT overwrite local edits - it only initializes
   useEffect(() => {
-    if (students && students.length > 0) {
-      setAttendanceRecords(prev => {
-        return students.map(student => {
-          const dbRecord = todayAttendance?.find(a => a.studentId === student.id);
-          const localRecord = prev.find(r => r.studentId === student.id);
-          
-          // If there's a database record, use it
-          if (dbRecord) {
-            return {
-              studentId: student.id,
-              studentName: student.fullName,
-              timeIn: dbRecord.timeIn ? format(new Date(dbRecord.timeIn), 'h:mm a') : null,
-              status: dbRecord.status as AttendanceStatus
-            };
-          }
-          
-          // Otherwise use local record or create new
-          return localRecord || {
-            studentId: student.id,
-            studentName: student.fullName,
-            timeIn: null,
-            status: null
-          };
-        });
-      });
+    // Skip if we haven't restored session yet or no students
+    if (!hasRestoredSession || !students || students.length === 0) return;
+    
+    // Skip if we already have records for this subject (from localStorage or previous load)
+    if (attendanceRecords.length > 0 && attendanceRecords[0]?.studentId) {
+      // Check if the records match current students (same subject)
+      const recordStudentIds = new Set(attendanceRecords.map(r => r.studentId));
+      const studentIds = new Set(students.map(s => s.id));
+      const isSameSubject = students.every(s => recordStudentIds.has(s.id));
+      if (isSameSubject) return; // Records are already loaded for this subject
     }
-  }, [todayAttendance, students]);
+    
+    // Initialize records from database or create empty ones
+    const newRecords = students.map(student => {
+      const dbRecord = todayAttendance?.find(a => a.studentId === student.id);
+      
+      if (dbRecord) {
+        return {
+          studentId: student.id,
+          studentName: student.fullName,
+          timeIn: dbRecord.timeIn 
+            ? new Date(dbRecord.timeIn).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Manila' })
+            : null,
+          status: dbRecord.status as AttendanceStatus
+        };
+      }
+      
+      return {
+        studentId: student.id,
+        studentName: student.fullName,
+        timeIn: null,
+        status: null
+      };
+    });
+    
+    setAttendanceRecords(newRecords);
+  }, [students, todayAttendance, hasRestoredSession]); // Removed attendanceRecords from deps to prevent loops
 
   // Update current time every second
   useEffect(() => {
@@ -155,14 +215,8 @@ export default function Attendance() {
     return null;
   }, [schedules, subjects]);
 
-  // Set default selected subject to current/next class
-  useEffect(() => {
-    if (currentOrNextSubject && !selectedSubjectId) {
-      setSelectedSubjectId(currentOrNextSubject.id.toString());
-    } else if (subjects && subjects.length > 0 && !selectedSubjectId) {
-      setSelectedSubjectId(subjects[0].id.toString());
-    }
-  }, [currentOrNextSubject, subjects, selectedSubjectId]);
+  // Note: Removed auto-select subject - let teacher manually choose
+  // This prevents overriding restored session state
 
   // Filter students by search
   const filteredRecords = attendanceRecords.filter(record =>
@@ -209,6 +263,23 @@ export default function Attendance() {
     return tokenWithMode;
   }, [selectedSubjectId]);
 
+  // Auto-regenerate QR code when a new scan is detected (attendance count increases)
+  useEffect(() => {
+    if (sessionState === 'active' && todayAttendance) {
+      const currentCount = todayAttendance.length;
+      if (currentCount > lastAttendanceCount && lastAttendanceCount > 0) {
+        // A new scan was detected - regenerate QR code
+        generateNewToken(wasResumed);
+        setScanCount(prev => prev + 1);
+        toast({
+          title: "Student Checked In",
+          description: "QR code regenerated automatically.",
+        });
+      }
+      setLastAttendanceCount(currentCount);
+    }
+  }, [todayAttendance, sessionState, lastAttendanceCount, wasResumed, generateNewToken, toast]);
+
   // QR Code data structure - contains token, subject, and timestamp for validation
   const qrCodeData = useMemo(() => {
     if (!currentQRToken || !selectedSubjectId) return "";
@@ -252,6 +323,8 @@ export default function Attendance() {
     setSessionState('active');
     setWasResumed(false);
     setScanCount(0);
+    // Reset attendance count tracking for auto-regeneration
+    setLastAttendanceCount(todayAttendance?.length || 0);
     // Generate initial QR code token when session starts
     await generateNewToken(false);
     toast({
@@ -329,27 +402,47 @@ export default function Attendance() {
     // Refresh attendance data
     refetchAttendance();
     
+    // Clear session from localStorage
+    localStorage.removeItem('attendanceSession');
+    
     toast({
       title: "Session Ended",
       description: `${studentsToMarkAbsent.length} students marked as absent.`
     });
   };
 
-  const handleStatusChange = (studentId: number, status: AttendanceStatus) => {
+  const handleStatusChange = async (studentId: number, status: AttendanceStatus) => {
     if (!isEditing && status === 'excused') return; // Excused only in edit mode
     
+    // Update local state first for immediate UI feedback
     setAttendanceRecords(prev => prev.map(record => {
       if (record.studentId === studentId) {
         return {
           ...record,
           status,
           timeIn: status === 'present' || status === 'late' || status === 'absent'
-            ? record.timeIn || format(new Date(), 'h:mm a')
+            ? record.timeIn || new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Manila' })
             : record.timeIn
         };
       }
       return record;
     }));
+
+    // If we're in edit mode, also update the database
+    if (isEditing && selectedSubjectId) {
+      const existingRecord = todayAttendance?.find(a => a.studentId === studentId);
+      if (existingRecord) {
+        // Update existing record
+        try {
+          await supabase
+            .from('attendance')
+            .update({ status })
+            .eq('id', existingRecord.id);
+        } catch (error) {
+          console.error('Failed to update attendance:', error);
+        }
+      }
+    }
   };
 
   // Manual QR regeneration (teacher can force regenerate if needed)
@@ -364,13 +457,117 @@ export default function Attendance() {
     }
   };
 
-  const handleEditSave = () => {
+  const handleEditSave = async () => {
     if (isEditing) {
-      // Save changes - in real app, would call API
+      // Save all changes to database
+      if (selectedSubjectId) {
+        let successCount = 0;
+        let errorCount = 0;
+        
+        console.log('Starting edit save...');
+        console.log('attendanceRecords:', attendanceRecords);
+        console.log('selectedSubjectId:', selectedSubjectId);
+        console.log('today:', today);
+        
+        for (const record of attendanceRecords) {
+          if (record.status) {
+            console.log('Processing record:', record);
+            // Query the database directly to find the record
+            const { data: dbRecords } = await supabase
+              .from('attendance')
+              .select('id, status')
+              .eq('student_id', record.studentId)
+              .eq('subject_id', parseInt(selectedSubjectId))
+              .eq('date', today)
+              .limit(1);
+            
+            const existingRecord = dbRecords?.[0];
+            
+            if (existingRecord) {
+              console.log('Found existing record in DB:', existingRecord);
+              console.log('Comparing status:', existingRecord.status, 'vs', record.status);
+              // Only update if status actually changed
+              if (existingRecord.status !== record.status) {
+                console.log('Status changed! Updating...');
+                const { error } = await supabase
+                  .from('attendance')
+                  .update({ status: record.status })
+                  .eq('id', existingRecord.id);
+                
+                if (error) {
+                  console.error('Failed to update attendance:', error);
+                  errorCount++;
+                } else {
+                  console.log('Update successful!');
+                  successCount++;
+                }
+              } else {
+                console.log('Status unchanged, skipping');
+              }
+            } else {
+              console.log('No existing record found, creating new...');
+              // Create new record if it doesn't exist
+              const { error } = await supabase
+                .from('attendance')
+                .insert({
+                  student_id: record.studentId,
+                  subject_id: parseInt(selectedSubjectId),
+                  date: today,
+                  status: record.status,
+                  time_in: new Date().toISOString()
+                });
+              
+              if (error) {
+                console.error('Failed to create attendance:', error);
+                errorCount++;
+              } else {
+                successCount++;
+              }
+            }
+          }
+        }
+        
+        // Refresh data from database to confirm changes
+        await refetchAttendance();
+        
+        if (errorCount > 0) {
+          toast({
+            title: "Partial Save",
+            description: `${successCount} records saved, ${errorCount} failed.`,
+            variant: "destructive"
+          });
+        } else if (successCount > 0) {
+          toast({
+            title: "Changes Saved",
+            description: `${successCount} attendance records have been updated.`
+          });
+        } else {
+          toast({
+            title: "No Changes",
+            description: "All records are already up to date."
+          });
+        }
+      }
       setIsEditing(false);
     } else {
       setIsEditing(true);
     }
+  };
+
+  // Reset session - clears all local state and starts fresh
+  const handleNewSession = () => {
+    localStorage.removeItem('attendanceSession');
+    setAttendanceRecords([]);
+    setSessionState('inactive');
+    setCurrentQRToken("");
+    setScanCount(0);
+    setWasResumed(false);
+    setSelectedSubjectId("");
+    refetchAttendance();
+    toast({
+      title: "Session Reset",
+      description: "Ready to start a new attendance session."
+    });
   };
 
   const selectedSubject = subjects?.find(s => s.id.toString() === selectedSubjectId);
@@ -506,6 +703,17 @@ export default function Attendance() {
               >
                 <Square className="w-4 h-4 mr-2" />
                 End
+              </Button>
+              
+              {/* New Session button - resets everything */}
+              <Button 
+                variant="outline"
+                className="w-full"
+                size="lg"
+                onClick={handleNewSession}
+              >
+                <RefreshCw className="w-4 h-4 mr-2" />
+                New Session
               </Button>
             </div>
 

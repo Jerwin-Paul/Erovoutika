@@ -18,11 +18,12 @@ function mapDbRowToAttendance(row: any): Attendance & { studentName: string; sub
   };
 }
 
-export function useAttendance(filters?: { subjectId?: number; studentId?: number; date?: string }) {
+export function useAttendance(filters?: { subjectId?: number; studentId?: number; date?: string }, options?: { refetchInterval?: number }) {
   const queryKey = ["attendance", filters];
   
   return useQuery({
     queryKey,
+    refetchInterval: options?.refetchInterval,
     queryFn: async () => {
       let query = supabase
         .from("attendance")

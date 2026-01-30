@@ -36,6 +36,7 @@ export interface IStorage {
 
   // Attendance
   markAttendance(record: InsertAttendance): Promise<Attendance>;
+  updateAttendance(id: number, data: { status?: string; remarks?: string }): Promise<Attendance>;
   getAttendance(studentId?: number, subjectId?: number, date?: string): Promise<(Attendance & { studentName: string, subjectName: string })[]>;
   getAttendanceByTeacher(teacherId: number): Promise<(Attendance & { studentName: string, subjectName: string })[]>;
 
@@ -172,6 +173,14 @@ export class DatabaseStorage implements IStorage {
   async markAttendance(record: InsertAttendance): Promise<Attendance> {
     const [att] = await db.insert(attendance).values(record).returning();
     return att;
+  }
+
+  async updateAttendance(id: number, data: { status?: string; remarks?: string }): Promise<Attendance> {
+    const [updated] = await db.update(attendance)
+      .set(data)
+      .where(eq(attendance.id, id))
+      .returning();
+    return updated;
   }
 
   async getAttendance(studentId?: number, subjectId?: number, date?: string): Promise<(Attendance & { studentName: string, subjectName: string })[]> {

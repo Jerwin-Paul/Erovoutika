@@ -78,10 +78,10 @@ export default function StudentAttendance() {
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
   const scannerContainerId = "qr-reader";
   
-  // Get attendance for current student
+  // Get attendance for current student with polling for real-time updates
   const { data: attendance, isLoading: attendanceLoading, refetch: refetchAttendance } = useAttendance({
     studentId: user?.id
-  });
+  }, { refetchInterval: 5000 }); // Poll every 5 seconds
 
   // Generate month options (last 12 months)
   const monthOptions = useMemo(() => {
@@ -493,7 +493,9 @@ export default function StudentAttendance() {
                         <p className="font-medium">{record.subjectName || 'Unknown'}</p>
                       </TableCell>
                       <TableCell>
-                        {record.timeIn ? format(new Date(record.timeIn), 'h:mm a') : '-'}
+                        {record.timeIn 
+                          ? new Date(record.timeIn).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone: 'Asia/Manila' })
+                          : '-'}
                       </TableCell>
                       <TableCell>
                         <StatusBadge status={record.status} />
