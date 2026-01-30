@@ -44,7 +44,7 @@ interface StudentAttendance {
   studentId: number;
   studentName: string;
   timeIn: string | null;
-  status: AttendanceStatus;
+  status?: AttendanceStatus; // Made optional for new sessions
 }
 
 export default function Attendance() {
@@ -554,19 +554,69 @@ export default function Attendance() {
     }
   };
 
-  // Reset session - clears all local state and starts fresh
-  const handleNewSession = () => {
+  // Reset session - clears all local state AND deletes today's attendance records from database
+  const handleNewSession = async () => {
+    if (!selectedSubjectId) {
+      toast({
+        title: "No Subject Selected",
+        description: "Please select a subject first.",
+        variant: "destructive"
+      });
+      return;
+    }
+
+    // Delete today's attendance records for this subject from database
+    try {
+      const { error } = await supabase
+        .from('attendance')
+        .delete()
+        .eq('subject_id', parseInt(selectedSubjectId))
+        .eq('date', today);
+      
+      if (error) {
+        console.error('Failed to delete attendance records:', error);
+        toast({
+          title: "Error",
+          description: "Failed to reset attendance records.",
+          variant: "destructive"
+        });
+        return;
+      }
+    } catch (error) {
+      console.error('Error deleting attendance:', error);
+    }
+
+    // Deactivate any active QR codes for this subject
+    await supabase
+      .from('qr_codes')
+      .update({ active: false })
+      .eq('subject_id', parseInt(selectedSubjectId));
+
+    // Clear local state but keep the subject selected
     localStorage.removeItem('attendanceSession');
     setAttendanceRecords([]);
     setSessionState('inactive');
     setCurrentQRToken("");
     setScanCount(0);
     setWasResumed(false);
-    setSelectedSubjectId("");
-    refetchAttendance();
+    
+    // Refresh attendance data
+    await refetchAttendance();
+    
+    // Reinitialize the attendance records with enrolled students
+    if (students) {
+      const freshRecords: StudentAttendance[] = students.map((student: any) => ({
+        studentId: student.id,
+        studentName: student.fullName || 'Unknown',
+        status: undefined,
+        timeIn: null
+      }));
+      setAttendanceRecords(freshRecords);
+    }
+    
     toast({
       title: "Session Reset",
-      description: "Ready to start a new attendance session."
+      description: "Today's attendance records have been cleared. Ready to start a new session."
     });
   };
 

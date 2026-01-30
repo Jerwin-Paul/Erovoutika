@@ -257,9 +257,49 @@ export default function StudentAttendance() {
         .eq('subject_id', validSubjectId)
         .eq('date', today);
 
+      // Determine the new status based on QR code
+      const newStatus = isLate ? 'late' : 'present';
+
+      // If already has attendance record, UPDATE it (allows changing from absent to present/late)
       if (existingAttendance && existingAttendance.length > 0) {
-        setScanResult('already');
-        setScanMessage(`Attendance already recorded for today as ${existingAttendance[0].status}`);
+        const existingRecord = existingAttendance[0];
+        
+        // If already present or late, don't change it
+        if (existingRecord.status === 'present' || existingRecord.status === 'late') {
+          setScanResult('already');
+          setScanMessage(`You're already checked in as ${existingRecord.status}`);
+          return;
+        }
+        
+        // Update the existing record (e.g., from absent to present/late)
+        const { error: updateError } = await supabase
+          .from('attendance')
+          .update({ 
+            status: newStatus,
+            time_in: new Date().toISOString(),
+            remarks: isLate ? 'Arrived late (updated)' : 'On time (updated)'
+          })
+          .eq('id', existingRecord.id);
+        
+        if (updateError) {
+          console.error('Failed to update attendance:', updateError);
+          throw new Error("Failed to update attendance record");
+        }
+
+        // Deactivate QR code after successful scan
+        await supabase
+          .from('qr_codes')
+          .update({ active: false })
+          .eq('id', qrRecord.id);
+
+        setScanResult(newStatus);
+        setScanMessage(`Attendance updated to ${newStatus}!`);
+        refetchAttendance();
+        
+        toast({
+          title: newStatus === 'present' ? "✓ Present!" : "⏰ Marked Late",
+          description: `Your attendance has been updated to ${newStatus}.`,
+        });
         return;
       }
 
