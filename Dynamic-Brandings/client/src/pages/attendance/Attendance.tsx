@@ -39,6 +39,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
 
 type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | null;
@@ -812,8 +823,8 @@ export default function Attendance() {
         <Card className="shadow-sm">
           <CardContent className="p-6">
             {/* Subject Selector */}
-            <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
-              <SelectTrigger className="w-full mb-6">
+            <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId} disabled={sessionState !== 'inactive'}>
+              <SelectTrigger className={`w-full mb-6 ${sessionState !== 'inactive' ? 'opacity-50 cursor-not-allowed' : ''}`}>
                 <SelectValue placeholder="Select a subject" />
               </SelectTrigger>
               <SelectContent>
@@ -885,18 +896,38 @@ export default function Attendance() {
                   Resume
                 </Button>
               )}
-              <Button 
-                className="w-full bg-red-600 hover:bg-red-700 text-white"
-                size="lg"
-                onClick={handleEndSession}
-                disabled={sessionState === 'inactive' || isEnding}
-              >
-                {isEnding ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Ending...</>
-                ) : (
-                  <><Square className="w-4 h-4 mr-2" />End</>
-                )}
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button 
+                    className="w-full bg-red-600 hover:bg-red-700 text-white"
+                    size="lg"
+                    disabled={sessionState === 'inactive' || isEnding}
+                  >
+                    {isEnding ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Ending...</>
+                    ) : (
+                      <><Square className="w-4 h-4 mr-2" />End</>
+                    )}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>End Attendance Session?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will end the current session and mark all students who haven't scanned as absent. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={handleEndSession}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      End Session
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
               
               {/* New Session button - resets everything */}
               <Button 
@@ -986,8 +1017,8 @@ export default function Attendance() {
                               record.status === 'present' 
                                 ? 'bg-green-500 border-green-500' 
                                 : 'border-gray-300 hover:border-green-400'
-                            }`}
-                            disabled={sessionState !== 'active' && !isEditing}
+                            } ${!isEditing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={!isEditing}
                           >
                             {record.status === 'present' && (
                               <CheckCircle2 className="w-4 h-4 text-white" />
@@ -1001,8 +1032,8 @@ export default function Attendance() {
                               record.status === 'late' 
                                 ? 'bg-yellow-500 border-yellow-500' 
                                 : 'border-gray-300 hover:border-yellow-400'
-                            }`}
-                            disabled={sessionState !== 'active' && !isEditing}
+                            } ${!isEditing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={!isEditing}
                           >
                             {record.status === 'late' && (
                               <div className="w-3 h-3 rounded-full bg-white" />
@@ -1016,8 +1047,8 @@ export default function Attendance() {
                               record.status === 'absent' 
                                 ? 'bg-red-500 border-red-500' 
                                 : 'border-gray-300 hover:border-red-400'
-                            }`}
-                            disabled={sessionState !== 'active' && !isEditing}
+                            } ${!isEditing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={!isEditing}
                           >
                             {record.status === 'absent' && (
                               <div className="w-3 h-3 rounded-full bg-white" />
