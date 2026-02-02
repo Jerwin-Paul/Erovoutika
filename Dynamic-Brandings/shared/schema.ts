@@ -7,7 +7,7 @@ import { relations } from "drizzle-orm";
 
 export const users = pgTable("users", {
   id: serial("id").primaryKey(),
-  username: text("username").notNull().unique(),
+  idNumber: text("id_number").notNull().unique(),
   email: text("email").notNull().unique(),
   password: text("password").notNull(),
   fullName: text("full_name").notNull(),
@@ -134,11 +134,18 @@ export type Enrollment = typeof enrollments.$inferSelect;
 export type Attendance = typeof attendance.$inferSelect;
 export type QrCode = typeof qrCodes.$inferSelect;
 export type Schedule = typeof schedules.$inferSelect;
+
+// Insert types
+export type InsertUser = z.infer<typeof insertUserSchema>;
+export type InsertSubject = z.infer<typeof insertSubjectSchema>;
+export type InsertEnrollment = z.infer<typeof insertEnrollmentSchema>;
+export type InsertAttendance = z.infer<typeof insertAttendanceSchema>;
+export type InsertQrCode = z.infer<typeof insertQrCodeSchema>;
 export type InsertSchedule = z.infer<typeof insertScheduleSchema>;
 
 // Request types
 export type LoginRequest = {
-  identifier: string; // email or username
+  identifier: string; // email or ID number
   password: string;
   role: "student" | "teacher" | "superadmin";
 };

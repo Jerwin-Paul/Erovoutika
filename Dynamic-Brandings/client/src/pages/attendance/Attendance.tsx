@@ -930,15 +930,35 @@ export default function Attendance() {
               </AlertDialog>
               
               {/* New Session button - resets everything */}
-              <Button 
-                variant="outline"
-                className="w-full"
-                size="lg"
-                onClick={handleNewSession}
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                New Session
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button 
+                    variant="outline"
+                    className="w-full"
+                    size="lg"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    New Session
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Start New Session?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will delete all attendance records for today's session and reset everything. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={handleNewSession}
+                      className="bg-destructive hover:bg-destructive/90"
+                    >
+                      Reset Session
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
 
             {sessionState !== 'inactive' && (
