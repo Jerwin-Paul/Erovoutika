@@ -102,15 +102,22 @@ export default function AttendanceHistory() {
 
   // Mutation for updating attendance
   const updateMutation = useMutation({
-    mutationFn: async ({ id, status, remarks }: { id: number; status: string; remarks: string }) => {
+    mutationFn: async ({ id, status, remarks, originalStatus }: { id: number; status: string; remarks: string; originalStatus: string }) => {
       // Determine if we should record time_in based on status
       const shouldRecordTimeIn = status === 'present' || status === 'late';
+      // Only set "Manually edited" if the status changed, otherwise use the user's remarks
+      const statusChanged = status !== originalStatus;
       const updateData: { status: string; remarks: string; time_in?: string | null } = { 
         status, 
-        remarks: 'Manually edited',
-        // Set time_in for present/late, clear it for absent/excused
-        time_in: shouldRecordTimeIn ? getPhilippineTimeISO() : null
+        remarks: statusChanged ? 'Manually edited' : remarks,
+        // Set time_in for present/late, clear it for absent/excused (only if status changed)
+        time_in: statusChanged ? (shouldRecordTimeIn ? getPhilippineTimeISO() : null) : undefined
       };
+      
+      // Remove time_in from update if status didn't change (keep existing value)
+      if (!statusChanged) {
+        delete updateData.time_in;
+      }
       
       const { data, error } = await supabase
         .from('attendance')
@@ -145,7 +152,8 @@ export default function AttendanceHistory() {
     updateMutation.mutate({
       id: editingRecord.id,
       status: editStatus,
-      remarks: editRemarks
+      remarks: editRemarks,
+      originalStatus: editingRecord.status
     });
   };
 
