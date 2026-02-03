@@ -18,7 +18,7 @@ function mapDbRowToSubject(row: any): Subject {
 function mapDbRowToUser(row: any): User {
   return {
     id: row.id,
-    username: row.username,
+    idNumber: row.id_number,
     email: row.email,
     password: row.password,
     fullName: row.full_name,
@@ -36,6 +36,39 @@ export function useSubjects() {
       if (error) throw new Error("Failed to fetch subjects");
       return (data || []).map(mapDbRowToSubject);
     },
+  });
+}
+
+// Fetch only subjects that a specific student is enrolled in
+export function useStudentSubjects(studentId: number | undefined) {
+  return useQuery({
+    queryKey: ["student-subjects", studentId],
+    queryFn: async () => {
+      if (!studentId) return [];
+      
+      // Get enrolled subject IDs for this student
+      const { data: enrollments, error: enrollError } = await supabase
+        .from("enrollments")
+        .select("subject_id")
+        .eq("student_id", studentId);
+      
+      if (enrollError) throw new Error("Failed to fetch enrollments");
+      
+      if (!enrollments || enrollments.length === 0) {
+        return [];
+      }
+      
+      // Get subject details for enrolled subjects
+      const subjectIds = enrollments.map(e => e.subject_id);
+      const { data: subjects, error: subjectsError } = await supabase
+        .from("subjects")
+        .select("*")
+        .in("id", subjectIds);
+      
+      if (subjectsError) throw new Error("Failed to fetch subjects");
+      return (subjects || []).map(mapDbRowToSubject);
+    },
+    enabled: !!studentId,
   });
 }
 
@@ -131,7 +164,30 @@ export function useEnrollStudent() {
     },
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["subject-students", variables.subjectId] });
+      queryClient.invalidateQueries({ queryKey: ["student-subjects"] });
       toast({ title: "Enrolled", description: "Student successfully enrolled in the subject." });
+    },
+  });
+}
+
+export function useUnenrollStudent() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
+  return useMutation({
+    mutationFn: async ({ subjectId, studentId }: { subjectId: number; studentId: number }) => {
+      const { error } = await supabase
+        .from("enrollments")
+        .delete()
+        .eq("subject_id", subjectId)
+        .eq("student_id", studentId);
+      
+      if (error) throw new Error("Failed to unenroll student");
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["subject-students", variables.subjectId] });
+      queryClient.invalidateQueries({ queryKey: ["student-subjects"] });
+      toast({ title: "Unenrolled", description: "Student has been removed from the subject." });
     },
   });
 }

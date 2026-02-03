@@ -4,6 +4,7 @@ import { useSubjects, useSubjectStudents } from "@/hooks/use-subjects";
 import { useTeacherSchedules } from "@/hooks/use-schedules";
 import { useAttendance } from "@/hooks/use-attendance";
 import { useToast } from "@/hooks/use-toast";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
 import { getPhilippineTimeISO } from "@/lib/utils";
 import { 
@@ -14,7 +15,8 @@ import {
   Play,
   Square,
   Pause,
-  RefreshCw
+  RefreshCw,
+  Loader2
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { v4 as uuidv4 } from "uuid";
@@ -37,6 +39,17 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import { format } from "date-fns";
 
 type AttendanceStatus = 'present' | 'late' | 'absent' | 'excused' | null;
@@ -53,10 +66,13 @@ export default function Attendance() {
   const { data: subjects } = useSubjects();
   const { data: schedules } = useTeacherSchedules();
   const { toast } = useToast();
+  const queryClient = useQueryClient();
   
   const [selectedSubjectId, setSelectedSubjectId] = useState<string>("");
   const [search, setSearch] = useState("");
   const [isEditing, setIsEditing] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isEnding, setIsEnding] = useState(false);
   // Session states: 'inactive' | 'active' | 'paused'
   const [sessionState, setSessionState] = useState<'inactive' | 'active' | 'paused'>('inactive');
   const [wasResumed, setWasResumed] = useState(false);
@@ -322,18 +338,21 @@ export default function Attendance() {
     }
   }, [todayAttendance, sessionState, lastAttendanceCount, wasResumed, sessionEnded, generateNewToken, toast]);
 
-  // QR Code data structure - contains token, subject, and timestamp for validation
+  // QR Code data structure - contains URL with token, subject, and timestamp for validation
+  // When scanned with any QR scanner, it redirects to login page with attendance params
   const qrCodeData = useMemo(() => {
     if (!currentQRToken || !selectedSubjectId) return "";
     
-    const data = {
+    // Create a URL that redirects to login with attendance parameters
+    const baseUrl = window.location.origin;
+    const params = new URLSearchParams({
       token: currentQRToken,
       subjectId: selectedSubjectId,
-      timestamp: Date.now(),
-      sessionId: `${selectedSubjectId}-${format(new Date(), 'yyyy-MM-dd')}`
-    };
+      ts: Date.now().toString(),
+      scan: 'attendance'
+    });
     
-    return JSON.stringify(data);
+    return `${baseUrl}/login?${params.toString()}`;
   }, [currentQRToken, selectedSubjectId]);
 
   // Simulate a student scanning the QR code (for testing)
@@ -417,11 +436,9 @@ export default function Attendance() {
   };
 
   const handleEndSession = async () => {
-    setSessionState('inactive');
-    setWasResumed(false);
-    setSessionEnded(true); // Mark that session was ended - next start should be Resume (late mode)
+    setIsEnding(true);
     
-    // Deactivate QR code in database
+    // Deactivate QR code in database first
     if (selectedSubjectId) {
       await supabase
         .from("qr_codes")
@@ -442,26 +459,29 @@ export default function Attendance() {
     
     const dbStudentIds = new Set((latestAttendance || []).map(a => a.student_id));
     
-    // Mark only students who DON'T have ANY record in database as absent
+    // Collect all students who need to be marked as absent
+    const absentRecords = attendanceRecords
+      .filter(record => !dbStudentIds.has(record.studentId))
+      .map(record => ({
+        student_id: record.studentId,
+        subject_id: parseInt(selectedSubjectId),
+        date: today,
+        status: 'absent',
+        time_in: null,
+        remarks: 'Did not scan QR'
+      }));
+    
+    // Batch insert all absent records at once (much faster than individual inserts)
     let absentCount = 0;
-    for (const record of attendanceRecords) {
-      // Check if student already has a record in the DATABASE (not just local state)
-      if (!dbStudentIds.has(record.studentId)) {
-        try {
-          await supabase
-            .from("attendance")
-            .insert({
-              student_id: record.studentId,
-              subject_id: parseInt(selectedSubjectId),
-              date: today,
-              status: 'absent',
-              time_in: getPhilippineTimeISO(),
-              remarks: 'Marked absent - did not scan QR'
-            });
-          absentCount++;
-        } catch (error) {
-          console.error("Failed to mark absent:", error);
-        }
+    if (absentRecords.length > 0) {
+      const { error } = await supabase
+        .from("attendance")
+        .insert(absentRecords);
+      
+      if (error) {
+        console.error("Failed to mark absent:", error);
+      } else {
+        absentCount = absentRecords.length;
       }
     }
     
@@ -475,11 +495,20 @@ export default function Attendance() {
     });
     setAttendanceRecords(updatedRecords);
     
+    // Update session state
+    setSessionState('inactive');
+    setWasResumed(false);
+    setSessionEnded(false); // Reset to show "Start" button instead of "Resume"
+    
     // Refresh attendance data
     refetchAttendance();
+    // Invalidate teacher-attendance cache so AttendanceHistory updates
+    queryClient.invalidateQueries({ queryKey: ['teacher-attendance'] });
     
     // Clear session from localStorage
     localStorage.removeItem('attendanceSession');
+    
+    setIsEnding(false);
     
     toast({
       title: "Session Ended",
@@ -504,21 +533,9 @@ export default function Attendance() {
       return record;
     }));
 
-    // If we're in edit mode, also update the database
-    if (isEditing && selectedSubjectId) {
-      const existingRecord = todayAttendance?.find(a => a.studentId === studentId);
-      if (existingRecord) {
-        // Update existing record
-        try {
-          await supabase
-            .from('attendance')
-            .update({ status })
-            .eq('id', existingRecord.id);
-        } catch (error) {
-          console.error('Failed to update attendance:', error);
-        }
-      }
-    }
+    // Note: When in edit mode, we only update local state here.
+    // The database will be updated when the Save button is clicked in handleEditSave.
+    // This ensures the "No Changes" message works correctly.
   };
 
   // Manual QR regeneration (teacher can force regenerate if needed)
@@ -535,76 +552,100 @@ export default function Attendance() {
 
   const handleEditSave = async () => {
     if (isEditing) {
+      setIsSaving(true);
       // Save all changes to database
       if (selectedSubjectId) {
         let successCount = 0;
         let errorCount = 0;
         
-        console.log('Starting edit save...');
-        console.log('attendanceRecords:', attendanceRecords);
-        console.log('selectedSubjectId:', selectedSubjectId);
-        console.log('today:', today);
+        // Fetch all existing records in a single query
+        const { data: allDbRecords } = await supabase
+          .from('attendance')
+          .select('id, student_id, status')
+          .eq('subject_id', parseInt(selectedSubjectId))
+          .eq('date', today);
+        
+        // Create a map for quick lookup
+        const dbRecordMap = new Map(
+          (allDbRecords || []).map(r => [r.student_id, { id: r.id, status: r.status }])
+        );
+        
+        // Separate records into updates and inserts
+        const recordsToUpdate: Array<{ id: number; status: string; time_in: string | null; remarks: string }> = [];
+        const recordsToInsert: Array<{ student_id: number; subject_id: number; date: string; status: string; time_in: string | null }> = [];
+        
+        const currentTime = getPhilippineTimeISO();
         
         for (const record of attendanceRecords) {
           if (record.status) {
-            console.log('Processing record:', record);
-            // Query the database directly to find the record
-            const { data: dbRecords } = await supabase
-              .from('attendance')
-              .select('id, status')
-              .eq('student_id', record.studentId)
-              .eq('subject_id', parseInt(selectedSubjectId))
-              .eq('date', today)
-              .limit(1);
-            
-            const existingRecord = dbRecords?.[0];
+            const existingRecord = dbRecordMap.get(record.studentId);
+            const shouldRecordTimeIn = record.status === 'present' || record.status === 'late';
             
             if (existingRecord) {
-              console.log('Found existing record in DB:', existingRecord);
-              console.log('Comparing status:', existingRecord.status, 'vs', record.status);
               // Only update if status actually changed
               if (existingRecord.status !== record.status) {
-                console.log('Status changed! Updating...');
-                const { error } = await supabase
-                  .from('attendance')
-                  .update({ status: record.status })
-                  .eq('id', existingRecord.id);
-                
-                if (error) {
-                  console.error('Failed to update attendance:', error);
-                  errorCount++;
-                } else {
-                  console.log('Update successful!');
-                  successCount++;
-                }
-              } else {
-                console.log('Status unchanged, skipping');
+                recordsToUpdate.push({
+                  id: existingRecord.id,
+                  status: record.status,
+                  time_in: shouldRecordTimeIn ? currentTime : null,
+                  remarks: 'Manually edited'
+                });
               }
             } else {
-              console.log('No existing record found, creating new...');
-              // Create new record if it doesn't exist
-              const { error } = await supabase
-                .from('attendance')
-                .insert({
-                  student_id: record.studentId,
-                  subject_id: parseInt(selectedSubjectId),
-                  date: today,
-                  status: record.status,
-                  time_in: getPhilippineTimeISO()
-                });
-              
-              if (error) {
-                console.error('Failed to create attendance:', error);
-                errorCount++;
-              } else {
-                successCount++;
-              }
+              // New record to insert
+              recordsToInsert.push({
+                student_id: record.studentId,
+                subject_id: parseInt(selectedSubjectId),
+                date: today,
+                status: record.status,
+                time_in: shouldRecordTimeIn ? currentTime : null
+              });
             }
           }
         }
         
+        // Batch insert new records
+        if (recordsToInsert.length > 0) {
+          const { error } = await supabase
+            .from('attendance')
+            .insert(recordsToInsert);
+          
+          if (error) {
+            console.error('Failed to insert attendance records:', error);
+            errorCount += recordsToInsert.length;
+          } else {
+            successCount += recordsToInsert.length;
+          }
+        }
+        
+        // Update records (Supabase doesn't support batch updates with different values, so we use Promise.all)
+        if (recordsToUpdate.length > 0) {
+          const updatePromises = recordsToUpdate.map(record =>
+            supabase
+              .from('attendance')
+              .update({ 
+                status: record.status,
+                time_in: record.time_in,
+                remarks: record.remarks
+              })
+              .eq('id', record.id)
+          );
+          
+          const results = await Promise.all(updatePromises);
+          results.forEach(({ error }) => {
+            if (error) {
+              console.error('Failed to update attendance:', error);
+              errorCount++;
+            } else {
+              successCount++;
+            }
+          });
+        }
+        
         // Refresh data from database to confirm changes
         await refetchAttendance();
+        // Invalidate teacher-attendance cache so AttendanceHistory updates
+        queryClient.invalidateQueries({ queryKey: ['teacher-attendance'] });
         
         if (errorCount > 0) {
           toast({
@@ -624,6 +665,7 @@ export default function Attendance() {
           });
         }
       }
+      setIsSaving(false);
       setIsEditing(false);
     } else {
       setIsEditing(true);
@@ -679,6 +721,8 @@ export default function Attendance() {
     
     // Refresh attendance data
     await refetchAttendance();
+    // Invalidate teacher-attendance cache so AttendanceHistory updates
+    queryClient.invalidateQueries({ queryKey: ['teacher-attendance'] });
     
     // Reinitialize the attendance records with enrolled students
     if (students) {
@@ -762,8 +806,8 @@ export default function Attendance() {
         <Card className="shadow-sm">
           <CardContent className="p-6">
             {/* Subject Selector */}
-            <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId}>
-              <SelectTrigger className="w-full mb-6">
+            <Select value={selectedSubjectId} onValueChange={setSelectedSubjectId} disabled={sessionState !== 'inactive'}>
+              <SelectTrigger className={`w-full mb-6 ${sessionState !== 'inactive' ? 'opacity-50 cursor-not-allowed' : ''}`}>
                 <SelectValue placeholder="Select a subject" />
               </SelectTrigger>
               <SelectContent>
@@ -835,26 +879,69 @@ export default function Attendance() {
                   Resume
                 </Button>
               )}
-              <Button 
-                className="w-full bg-red-600 hover:bg-red-700 text-white"
-                size="lg"
-                onClick={handleEndSession}
-                disabled={sessionState === 'inactive'}
-              >
-                <Square className="w-4 h-4 mr-2" />
-                End
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button 
+                    className="w-full bg-red-600 hover:bg-red-700 text-white"
+                    size="lg"
+                    disabled={sessionState === 'inactive' || isEnding}
+                  >
+                    {isEnding ? (
+                      <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Ending...</>
+                    ) : (
+                      <><Square className="w-4 h-4 mr-2" />End</>
+                    )}
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>End Attendance Session?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will end the current session and mark all students who haven't scanned as absent. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={handleEndSession}
+                      className="bg-red-600 hover:bg-red-700"
+                    >
+                      End Session
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
               
               {/* New Session button - resets everything */}
-              <Button 
-                variant="outline"
-                className="w-full"
-                size="lg"
-                onClick={handleNewSession}
-              >
-                <RefreshCw className="w-4 h-4 mr-2" />
-                New Session
-              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button 
+                    variant="outline"
+                    className="w-full"
+                    size="lg"
+                  >
+                    <RefreshCw className="w-4 h-4 mr-2" />
+                    New Session
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Start New Session?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      This will delete all attendance records for today's session and reset everything. This action cannot be undone.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction 
+                      onClick={handleNewSession}
+                      className="bg-destructive hover:bg-destructive/90"
+                    >
+                      Reset Session
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             </div>
 
             {sessionState !== 'inactive' && (
@@ -888,8 +975,11 @@ export default function Attendance() {
               <Button 
                 variant={isEditing ? "default" : "outline"}
                 onClick={handleEditSave}
+                disabled={isSaving}
               >
-                {isEditing ? "Save" : "Edit"}
+                {isSaving ? (
+                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />Saving...</>
+                ) : isEditing ? "Save" : "Edit"}
               </Button>
             </div>
 
@@ -930,8 +1020,8 @@ export default function Attendance() {
                               record.status === 'present' 
                                 ? 'bg-green-500 border-green-500' 
                                 : 'border-gray-300 hover:border-green-400'
-                            }`}
-                            disabled={sessionState !== 'active' && !isEditing}
+                            } ${!isEditing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={!isEditing}
                           >
                             {record.status === 'present' && (
                               <CheckCircle2 className="w-4 h-4 text-white" />
@@ -945,8 +1035,8 @@ export default function Attendance() {
                               record.status === 'late' 
                                 ? 'bg-yellow-500 border-yellow-500' 
                                 : 'border-gray-300 hover:border-yellow-400'
-                            }`}
-                            disabled={sessionState !== 'active' && !isEditing}
+                            } ${!isEditing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={!isEditing}
                           >
                             {record.status === 'late' && (
                               <div className="w-3 h-3 rounded-full bg-white" />
@@ -960,8 +1050,8 @@ export default function Attendance() {
                               record.status === 'absent' 
                                 ? 'bg-red-500 border-red-500' 
                                 : 'border-gray-300 hover:border-red-400'
-                            }`}
-                            disabled={sessionState !== 'active' && !isEditing}
+                            } ${!isEditing ? 'opacity-50 cursor-not-allowed' : ''}`}
+                            disabled={!isEditing}
                           >
                             {record.status === 'absent' && (
                               <div className="w-3 h-3 rounded-full bg-white" />

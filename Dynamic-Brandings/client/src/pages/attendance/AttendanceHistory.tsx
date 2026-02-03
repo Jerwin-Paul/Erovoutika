@@ -4,6 +4,7 @@ import { useSubjects } from "@/hooks/use-subjects";
 import { useToast } from "@/hooks/use-toast";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/lib/supabase";
+import { getPhilippineTimeISO } from "@/lib/utils";
 import { 
   Search,
   Calendar,
@@ -101,10 +102,26 @@ export default function AttendanceHistory() {
 
   // Mutation for updating attendance
   const updateMutation = useMutation({
-    mutationFn: async ({ id, status, remarks }: { id: number; status: string; remarks: string }) => {
+    mutationFn: async ({ id, status, remarks, originalStatus }: { id: number; status: string; remarks: string; originalStatus: string }) => {
+      // Determine if we should record time_in based on status
+      const shouldRecordTimeIn = status === 'present' || status === 'late';
+      // Only set "Manually edited" if the status changed, otherwise use the user's remarks
+      const statusChanged = status !== originalStatus;
+      const updateData: { status: string; remarks: string; time_in?: string | null } = { 
+        status, 
+        remarks: statusChanged ? 'Manually edited' : remarks,
+        // Set time_in for present/late, clear it for absent/excused (only if status changed)
+        time_in: statusChanged ? (shouldRecordTimeIn ? getPhilippineTimeISO() : null) : undefined
+      };
+      
+      // Remove time_in from update if status didn't change (keep existing value)
+      if (!statusChanged) {
+        delete updateData.time_in;
+      }
+      
       const { data, error } = await supabase
         .from('attendance')
-        .update({ status, remarks })
+        .update(updateData)
         .eq('id', id)
         .select()
         .single();
@@ -135,7 +152,8 @@ export default function AttendanceHistory() {
     updateMutation.mutate({
       id: editingRecord.id,
       status: editStatus,
-      remarks: editRemarks
+      remarks: editRemarks,
+      originalStatus: editingRecord.status
     });
   };
 
@@ -443,8 +461,9 @@ export default function AttendanceHistory() {
         </CardHeader>
         <CardContent>
           {isLoading ? (
-            <div className="text-center py-8 text-muted-foreground">
-              Loading attendance records...
+            <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
+              <Loader2 className="w-8 h-8 animate-spin text-primary mb-4" />
+              <p>Loading attendance records...</p>
             </div>
           ) : Object.keys(recordsByDate).length > 0 ? (
             <div className="space-y-6">
