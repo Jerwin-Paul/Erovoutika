@@ -23,7 +23,7 @@ import {
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 
@@ -32,13 +32,6 @@ const forgotPasswordSchema = z.object({
 });
 
 type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>;
-
-// Generate a secure random token
-function generateSecureToken(): string {
-  const array = new Uint8Array(32);
-  crypto.getRandomValues(array);
-  return Array.from(array, byte => byte.toString(16).padStart(2, '0')).join('');
-}
 
 export default function ForgotPassword() {
   const { settings } = useSystemSettings();
@@ -61,10 +54,10 @@ export default function ForgotPassword() {
     setIsSubmitting(true);
     
     try {
-      // Check if user exists with this email
+      // First check if user exists in our users table
       const { data: userData, error: userError } = await supabase
         .from("users")
-        .select("id, email, full_name")
+        .select("id, email")
         .eq("email", data.email.toLowerCase())
         .single();
 
@@ -76,79 +69,23 @@ export default function ForgotPassword() {
         return;
       }
 
-      // Generate secure token
-      const token = generateSecureToken();
-      const expiresAt = new Date(Date.now() + 60 * 60 * 1000); // 1 hour from now
-
-      // Delete any existing tokens for this user
-      await supabase
-        .from("password_reset_tokens")
-        .delete()
-        .eq("user_id", userData.id);
-
-      // Store the token in the database
-      const { error: tokenError } = await supabase
-        .from("password_reset_tokens")
-        .insert({
-          user_id: userData.id,
-          token: token,
-          expires_at: expiresAt.toISOString(),
-        });
-
-      if (tokenError) {
-        throw new Error("Failed to create reset token");
-      }
-
-      // Build the reset URL
-      const resetUrl = `${window.location.origin}/reset-password?token=${token}`;
-
-      // Send password reset email via API
-      const emailResponse = await fetch('/api/send-reset-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          email: userData.email, 
-          resetUrl, 
-          name: userData.full_name,
-          systemName: settings.systemTitle || 'Attendance Monitoring System',
-          schoolName: settings.schoolName || 'Your School',
-        })
+      // Use Supabase built-in password reset
+      // This will send an email through Supabase's transactional email service
+      const redirectUrl = `${window.location.origin}/reset-password`;
+      
+      const { error } = await supabase.auth.resetPasswordForEmail(data.email.toLowerCase(), {
+        redirectTo: redirectUrl,
       });
 
-      const emailResult = await emailResponse.json();
-
-      // Check if we're in development mode
-      const isDevelopment = import.meta.env.DEV || window.location.hostname === 'localhost';
-      
-      if (emailResult.success) {
-        // Email sent successfully!
+      if (error) {
+        console.error("Supabase reset password error:", error);
+        // Still show success to prevent email enumeration
+        // but log the error for debugging
+      } else {
         toast({
           title: "Email Sent! ✉️",
-          description: "Check your inbox for the password reset link.",
+          description: "Check your inbox (and spam folder) for the password reset link.",
         });
-      } else if (isDevelopment) {
-        // Development fallback: show link in toast if email fails
-        console.log("🔐 [DEV] Password Reset URL:", resetUrl);
-        console.log("🔐 [DEV] For user:", userData.full_name, userData.email);
-        console.warn("Email sending failed, showing dev fallback:", emailResult.error);
-        
-        toast({
-          title: "🔧 Development Mode",
-          description: (
-            <div className="mt-2 space-y-2">
-              <p className="text-sm text-yellow-600 font-medium">⚠️ Email failed - using dev fallback</p>
-              <p className="text-xs">Reset link (copy this):</p>
-              <code className="block p-2 bg-muted rounded text-xs break-all select-all">
-                {resetUrl}
-              </code>
-            </div>
-          ),
-          duration: 60000,
-        });
-      } else {
-        // Production: email failed but don't expose the link
-        console.error("Failed to send password reset email:", emailResult.error);
-        // Still show success to prevent email enumeration
       }
 
       setSubmittedEmail(data.email);
@@ -199,6 +136,13 @@ export default function ForgotPassword() {
                     you will receive a password reset link shortly.
                   </AlertDescription>
                 </Alert>
+
+                <div className="rounded-lg bg-amber-50 border border-amber-200 p-4">
+                  <p className="text-sm text-amber-800">
+                    <strong>📧 Note:</strong> The email may arrive in your <strong>spam/junk folder</strong>. 
+                    Please check there if you don't see it in your inbox.
+                  </p>
+                </div>
 
                 <div className="text-center space-y-4">
                   <p className="text-sm text-muted-foreground">

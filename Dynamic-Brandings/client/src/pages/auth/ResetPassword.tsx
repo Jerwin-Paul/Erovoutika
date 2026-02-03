@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useSystemSettings } from "@/hooks/use-system-settings";
-import { Link, useLocation, useSearch } from "wouter";
+import { Link, useLocation } from "wouter";
 import { supabase } from "@/lib/supabase";
 import { 
   GraduationCap, 
@@ -67,17 +67,15 @@ export default function ResetPassword() {
   const { settings } = useSystemSettings();
   const { toast } = useToast();
   const [, setLocation] = useLocation();
-  const searchString = useSearch();
-  const searchParams = new URLSearchParams(searchString);
-  const token = searchParams.get("token");
   
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isValidating, setIsValidating] = useState(true);
-  const [isValidToken, setIsValidToken] = useState(false);
+  const [isValidSession, setIsValidSession] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
-  const [tokenData, setTokenData] = useState<{ userId: number; userName: string } | null>(null);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const form = useForm<ResetPasswordFormValues>({
     resolver: zodResolver(resetPasswordSchema),
@@ -90,87 +88,98 @@ export default function ResetPassword() {
   const watchedPassword = form.watch("password");
   const passwordStrength = calculatePasswordStrength(watchedPassword || "");
 
-  // Validate token on mount
+  // Handle Supabase auth state change for password recovery
   useEffect(() => {
-    async function validateToken() {
-      if (!token) {
-        setIsValidating(false);
-        setIsValidToken(false);
-        return;
-      }
+    // Check for hash fragment (Supabase redirects with #access_token=...)
+    const hashParams = new URLSearchParams(window.location.hash.substring(1));
+    const accessToken = hashParams.get('access_token');
+    const type = hashParams.get('type');
+    const errorDesc = hashParams.get('error_description');
 
-      try {
-        // Check if token exists and is valid
-        const { data: tokenRecord, error } = await supabase
-          .from("password_reset_tokens")
-          .select("id, user_id, expires_at, used_at")
-          .eq("token", token)
-          .single();
-
-        if (error || !tokenRecord) {
-          setIsValidToken(false);
-          setIsValidating(false);
-          return;
-        }
-
-        // Check if token is expired
-        if (new Date(tokenRecord.expires_at) < new Date()) {
-          setIsValidToken(false);
-          setIsValidating(false);
-          return;
-        }
-
-        // Check if token is already used
-        if (tokenRecord.used_at) {
-          setIsValidToken(false);
-          setIsValidating(false);
-          return;
-        }
-
-        // Get user info
-        const { data: userData } = await supabase
-          .from("users")
-          .select("id, full_name")
-          .eq("id", tokenRecord.user_id)
-          .single();
-
-        if (userData) {
-          setTokenData({ userId: userData.id, userName: userData.full_name });
-        }
-
-        setIsValidToken(true);
-      } catch (err) {
-        console.error("Token validation error:", err);
-        setIsValidToken(false);
-      } finally {
-        setIsValidating(false);
-      }
+    if (errorDesc) {
+      setErrorMessage(decodeURIComponent(errorDesc.replace(/\+/g, ' ')));
+      setIsValidating(false);
+      setIsValidSession(false);
+      return;
     }
 
-    validateToken();
-  }, [token]);
+    // If we have a recovery type access token, we're in password recovery mode
+    if (type === 'recovery' && accessToken) {
+      // Set the session with the access token
+      const refreshToken = hashParams.get('refresh_token');
+      
+      if (accessToken && refreshToken) {
+        supabase.auth.setSession({
+          access_token: accessToken,
+          refresh_token: refreshToken,
+        }).then(({ data, error }) => {
+          if (error) {
+            console.error("Error setting session:", error);
+            setErrorMessage("Invalid or expired reset link.");
+            setIsValidSession(false);
+          } else if (data.user) {
+            setUserEmail(data.user.email || null);
+            setIsValidSession(true);
+          }
+          setIsValidating(false);
+        });
+      } else {
+        setErrorMessage("Invalid reset link.");
+        setIsValidating(false);
+        setIsValidSession(false);
+      }
+    } else {
+      // Check if there's already a valid session (user might have clicked the link)
+      supabase.auth.getSession().then(({ data: { session } }) => {
+        if (session) {
+          setUserEmail(session.user.email || null);
+          setIsValidSession(true);
+        } else {
+          // No valid session and no recovery token
+          setErrorMessage("No valid password reset session found. Please request a new reset link.");
+          setIsValidSession(false);
+        }
+        setIsValidating(false);
+      });
+    }
+
+    // Listen for auth state changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'PASSWORD_RECOVERY') {
+        setUserEmail(session?.user.email || null);
+        setIsValidSession(true);
+        setIsValidating(false);
+      }
+    });
+
+    return () => {
+      subscription.unsubscribe();
+    };
+  }, []);
 
   const onSubmit = async (data: ResetPasswordFormValues) => {
-    if (!token || !tokenData) return;
-    
     setIsSubmitting(true);
     
     try {
-      // Update user password
-      const { error: updateError } = await supabase
-        .from("users")
-        .update({ password: data.password })
-        .eq("id", tokenData.userId);
+      // Update password using Supabase Auth
+      const { error } = await supabase.auth.updateUser({
+        password: data.password
+      });
 
-      if (updateError) {
-        throw new Error("Failed to update password");
+      if (error) {
+        throw error;
       }
 
-      // Mark token as used
-      await supabase
-        .from("password_reset_tokens")
-        .update({ used_at: new Date().toISOString() })
-        .eq("token", token);
+      // Also update the password in our users table if email is available
+      if (userEmail) {
+        await supabase
+          .from("users")
+          .update({ password: data.password })
+          .eq("email", userEmail.toLowerCase());
+      }
+
+      // Sign out after password change
+      await supabase.auth.signOut();
 
       setIsSuccess(true);
       
@@ -179,11 +188,11 @@ export default function ResetPassword() {
         description: "Your password has been updated. You can now log in with your new password.",
       });
       
-    } catch (error) {
+    } catch (error: any) {
       console.error("Reset password error:", error);
       toast({
         title: "Error",
-        description: "Failed to reset password. Please try again.",
+        description: error.message || "Failed to reset password. Please try again.",
         variant: "destructive",
       });
     } finally {
@@ -204,7 +213,7 @@ export default function ResetPassword() {
   }
 
   // Invalid or expired token
-  if (!isValidToken) {
+  if (!isValidSession) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50 p-4">
         <div className="w-full max-w-md space-y-6">
@@ -226,8 +235,7 @@ export default function ResetPassword() {
                 <AlertCircle className="h-4 w-4" />
                 <AlertTitle>Link Not Valid</AlertTitle>
                 <AlertDescription>
-                  Password reset links expire after 1 hour and can only be used once. 
-                  Please request a new reset link if you still need to reset your password.
+                  {errorMessage || "Password reset links expire after 1 hour and can only be used once. Please request a new reset link if you still need to reset your password."}
                 </AlertDescription>
               </Alert>
 
@@ -308,7 +316,7 @@ export default function ResetPassword() {
             Reset Your Password
           </h1>
           <p className="text-muted-foreground">
-            {tokenData?.userName ? `Hi ${tokenData.userName.split(' ')[0]}, create` : "Create"} a new password for your account.
+            {userEmail ? `Resetting password for ${userEmail}` : "Create a new password for your account."}
           </p>
         </div>
 
