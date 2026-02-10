@@ -163,7 +163,7 @@ export default function AttendanceHistory() {
     refetchInterval: 5000, // Poll every 5 seconds for real-time updates
     refetchIntervalInBackground: false,
     queryFn: async () => {
-      console.log('Current user:', user);
+
       
       // TEMP: Get all attendance records to test
       const { data, error } = await supabase

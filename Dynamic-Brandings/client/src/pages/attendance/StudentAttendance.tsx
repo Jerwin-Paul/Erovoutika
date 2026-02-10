@@ -87,8 +87,7 @@ export default function StudentAttendance() {
 
   // Debug: Log user and attendance data
   useEffect(() => {
-    console.log('Student user:', user);
-    console.log('Student attendance data:', attendance);
+
   }, [user, attendance]);
 
   // Generate month options (last 12 months)
