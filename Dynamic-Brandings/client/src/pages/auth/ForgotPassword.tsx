@@ -61,61 +61,55 @@ export default function ForgotPassword() {
         .select("*", { count: "exact", head: true })
         .eq("email", data.email.toLowerCase());
 
-      if (countError || !count || count === 0) {
-        // Don't reveal whether the email exists — show the same success message
-        setSubmittedEmail(data.email);
-        setIsSubmitted(true);
-        return;
-      }
+      const userExists = !countError && count && count > 0;
 
-      // User exists — ensure they're in Supabase Auth for password reset to work
-      const tempPassword = crypto.randomUUID();
-      await supabase.auth.signUp({
-        email: data.email.toLowerCase(),
-        password: tempPassword,
-      });
-
-      // Request password reset
-      const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-      const redirectUrl = isLocalhost 
-        ? `${window.location.origin}/reset-password`
-        : "https://dlsuqr.vercel.app/reset-password";
-      
-      const { error } = await supabase.auth.resetPasswordForEmail(data.email.toLowerCase(), {
-        redirectTo: redirectUrl,
-      });
-
-      if (error) {
-        // If rate limited, show specific message
-        if (error.message.includes("rate") || error.message.includes("limit")) {
-          toast({
-            title: "Too Many Requests",
-            description: "Please wait a few minutes before requesting another reset email.",
-            variant: "destructive",
-          });
-        } else {
-          toast({
-            title: "Notice",
-            description: "If an account exists, a reset email will be sent shortly.",
-            variant: "default",
-          });
-        }
-      } else {
-        toast({
-          title: "Email Sent! ✉️",
-          description: "Check your inbox (and spam folder) for the password reset link.",
+      if (userExists) {
+        // User exists — ensure they're in Supabase Auth for password reset to work
+        const tempPassword = crypto.randomUUID();
+        await supabase.auth.signUp({
+          email: data.email.toLowerCase(),
+          password: tempPassword,
         });
+
+        // Request password reset
+        const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+        const redirectUrl = isLocalhost 
+          ? `${window.location.origin}/reset-password`
+          : "https://dlsuqr.vercel.app/reset-password";
+        
+        const { error } = await supabase.auth.resetPasswordForEmail(data.email.toLowerCase(), {
+          redirectTo: redirectUrl,
+        });
+
+        if (error) {
+          if (error.message.includes("rate") || error.message.includes("limit")) {
+            toast({
+              title: "Too Many Requests",
+              description: "Please wait a few minutes before requesting another reset email.",
+              variant: "destructive",
+            });
+            setIsSubmitting(false);
+            return;
+          }
+        }
       }
 
+      // Always show the same message regardless of whether the email exists
+      toast({
+        title: "Request Received",
+        description: "If an account with that email exists, a reset link will be sent shortly.",
+      });
       setSubmittedEmail(data.email);
       setIsSubmitted(true);
       
     } catch (error) {
+      // Still show the same generic message to avoid leaking info via error vs success
       toast({
-        title: "Error",
-        description: "Something went wrong. Please try again later.",
-        variant: "destructive",
+        title: "Request Received",
+        description: "If an account with that email exists, a reset link will be sent shortly.",
       });
+      setSubmittedEmail(data.email);
+      setIsSubmitted(true);
     } finally {
       setIsSubmitting(false);
     }
