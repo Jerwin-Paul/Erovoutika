@@ -54,56 +54,26 @@ export default function ForgotPassword() {
     setIsSubmitting(true);
     
     try {
-      // First check if user exists in our users table
-      const { data: userData, error: userError } = await supabase
-        .from("users")
-        .select("id, email, full_name")
-        .eq("email", data.email.toLowerCase())
-        .single();
-
-      if (userError || !userData) {
-        // For security, don't reveal whether email exists
-        // Still show success message to prevent email enumeration
-        setSubmittedEmail(data.email);
-        setIsSubmitted(true);
-        return;
-      }
-
-      // Try to sign up the user to Supabase Auth if they don't exist there yet
-      // This is needed because resetPasswordForEmail only works for Supabase Auth users
+      // Try to ensure the user exists in Supabase Auth
+      // (resetPasswordForEmail only works for Supabase Auth users)
+      // This sign-up attempt will silently fail if the user already exists
       const tempPassword = crypto.randomUUID();
-      
-      // First try to sign up (will fail if user already exists in auth)
-      const { error: signUpError } = await supabase.auth.signUp({
+      await supabase.auth.signUp({
         email: data.email.toLowerCase(),
         password: tempPassword,
-        options: {
-          data: {
-            full_name: userData.full_name,
-            user_id: userData.id,
-          }
-        }
       });
-      
-      // Ignore "User already registered" error - that's expected
-      if (signUpError && !signUpError.message.includes("already registered")) {
-        // Sign up failed for a reason other than duplicate - non-blocking
-      }
 
-      // Now request password reset
-      // Determine the correct redirect URL based on environment
+      // Request password reset — Supabase handles whether the email exists or not
       const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const redirectUrl = isLocalhost 
         ? `${window.location.origin}/reset-password`
         : "https://dlsuqr.vercel.app/reset-password";
       
-      const { data: resetData, error } = await supabase.auth.resetPasswordForEmail(data.email.toLowerCase(), {
+      const { error } = await supabase.auth.resetPasswordForEmail(data.email.toLowerCase(), {
         redirectTo: redirectUrl,
       });
 
       if (error) {
-        console.error("Supabase reset password error:", error);
-        
         // If rate limited, show specific message
         if (error.message.includes("rate") || error.message.includes("limit")) {
           toast({
@@ -129,7 +99,6 @@ export default function ForgotPassword() {
       setIsSubmitted(true);
       
     } catch (error) {
-      console.error("Forgot password error:", error);
       toast({
         title: "Error",
         description: "Something went wrong. Please try again later.",
