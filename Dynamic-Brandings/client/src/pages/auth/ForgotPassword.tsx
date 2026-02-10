@@ -54,16 +54,28 @@ export default function ForgotPassword() {
     setIsSubmitting(true);
     
     try {
-      // Try to ensure the user exists in Supabase Auth
-      // (resetPasswordForEmail only works for Supabase Auth users)
-      // This sign-up attempt will silently fail if the user already exists
+      // Check if user exists without exposing any user data
+      // head: true returns only a count in the HTTP header — no data in the response body
+      const { count, error: countError } = await supabase
+        .from("users")
+        .select("*", { count: "exact", head: true })
+        .eq("email", data.email.toLowerCase());
+
+      if (countError || !count || count === 0) {
+        // Don't reveal whether the email exists — show the same success message
+        setSubmittedEmail(data.email);
+        setIsSubmitted(true);
+        return;
+      }
+
+      // User exists — ensure they're in Supabase Auth for password reset to work
       const tempPassword = crypto.randomUUID();
       await supabase.auth.signUp({
         email: data.email.toLowerCase(),
         password: tempPassword,
       });
 
-      // Request password reset — Supabase handles whether the email exists or not
+      // Request password reset
       const isLocalhost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
       const redirectUrl = isLocalhost 
         ? `${window.location.origin}/reset-password`
