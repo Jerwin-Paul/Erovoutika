@@ -95,15 +95,15 @@ export default function Login() {
       <div className="flex items-center justify-center p-8">
         <div className="w-full max-w-md space-y-8">
           <div className="text-center space-y-2">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-primary text-white shadow-xl shadow-primary/20 mb-4">
+            <div className="inline-flex items-center justify-center mb-4">
               {settings.logoUrl ? (
-                <img src={settings.logoUrl} alt="Logo" className="w-8 h-8 object-contain" />
+                <img src={settings.logoUrl} alt="Logo" className="w-300 h-25 object-contain" />
               ) : (
-                <GraduationCap className="w-8 h-8" />
+                <GraduationCap className="w-300 h-25 text-primary" />
               )}
             </div>
             <h1 className="text-3xl font-display font-bold tracking-tight text-gray-900">
-              Welcome Back Erovoutika
+              Welcome Back
             </h1>
             <p className="text-muted-foreground">
               Sign in to your {settings.systemTitle} account
@@ -206,7 +206,7 @@ export default function Login() {
         <div className="relative z-10 max-w-lg text-white space-y-8">
           <div className="space-y-4">
             <h2 className="text-4xl font-display font-bold leading-tight">
-              {settings.tagline || "Streamlining Academic Attendance"} at {settings.schoolName}
+              {settings.tagline || "One-Stop-Shop Innovation Solutions"}
             </h2>
             <p className="text-lg text-primary-foreground/80 leading-relaxed">
               Efficient, accurate, and real-time attendance monitoring for students and faculty.
