@@ -19,8 +19,8 @@ const defaultSettings: SystemSettings = {
   tagline: "One-Stop-Shop Innovation Solutions",
   primaryColor: "#00008B",
   secondaryColor: "#ffffff",
-  logoUrl: "/workspaces/Erovoutika/Dynamic-Brandings/client/public/Logo.webp",
-  faviconUrl: "/workspaces/Erovoutika/Dynamic-Brandings/client/public/favicon.png",
+  logoUrl: "/Logo.webp",
+  faviconUrl: "/favicon.png",
   theme: "light",
   fontFamily: "inter",
 };
@@ -35,6 +35,21 @@ interface SystemSettingsContextType {
 const SystemSettingsContext = createContext<SystemSettingsContextType | undefined>(undefined);
 
 const STORAGE_KEY = "attended-system-settings";
+
+// Fix broken absolute filesystem paths that may have been saved to database/localStorage
+function sanitizeSettings(settings: Partial<SystemSettings>): Partial<SystemSettings> {
+  const sanitized = { ...settings };
+  const fixPath = (url: string | undefined) => {
+    if (!url) return url;
+    // Strip absolute filesystem prefixes, keeping only the filename
+    const match = url.match(/\/client\/public\/(.+)$/);
+    if (match) return `/${match[1]}`;
+    return url;
+  };
+  if (sanitized.logoUrl) sanitized.logoUrl = fixPath(sanitized.logoUrl) as string;
+  if (sanitized.faviconUrl) sanitized.faviconUrl = fixPath(sanitized.faviconUrl) as string;
+  return sanitized;
+}
 
 // Convert hex to HSL for CSS variable compatibility
 function hexToHSL(hex: string): string {
@@ -163,15 +178,17 @@ export function SystemSettingsProvider({ children }: { children: ReactNode }) {
               (dbSettings as any)[key] = row.value;
             }
           });
-          setSettings({ ...defaultSettings, ...dbSettings });
+          const sanitizedDb = sanitizeSettings(dbSettings);
+          setSettings({ ...defaultSettings, ...sanitizedDb });
           // Also cache in localStorage for faster subsequent loads
-          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...defaultSettings, ...dbSettings }));
+          localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...defaultSettings, ...sanitizedDb }));
         } else {
           // Fallback to localStorage if database is not available
           const stored = localStorage.getItem(STORAGE_KEY);
           if (stored) {
             const parsed = JSON.parse(stored) as SystemSettings;
-            setSettings({ ...defaultSettings, ...parsed });
+            const sanitizedLocal = sanitizeSettings(parsed);
+            setSettings({ ...defaultSettings, ...sanitizedLocal });
           }
         }
       } catch (error) {
@@ -181,7 +198,8 @@ export function SystemSettingsProvider({ children }: { children: ReactNode }) {
           const stored = localStorage.getItem(STORAGE_KEY);
           if (stored) {
             const parsed = JSON.parse(stored) as SystemSettings;
-            setSettings({ ...defaultSettings, ...parsed });
+            const sanitizedFallback = sanitizeSettings(parsed);
+            setSettings({ ...defaultSettings, ...sanitizedFallback });
           }
         } catch (localError) {
           console.error("Failed to load system settings from localStorage:", localError);

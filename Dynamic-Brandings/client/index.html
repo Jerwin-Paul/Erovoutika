@@ -104,8 +104,11 @@
 
             // Apply favicon
             if (settings.faviconUrl) {
+              var faviconPath = settings.faviconUrl;
+              var faviconMatch = faviconPath.match(/\/client\/public\/(.+)$/);
+              if (faviconMatch) faviconPath = "/" + faviconMatch[1];
               var link = document.querySelector("link[rel~='icon']");
-              if (link) link.href = settings.faviconUrl;
+              if (link) link.href = faviconPath;
             }
 
             // Apply document title

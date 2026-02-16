@@ -37,8 +37,8 @@ import { useSystemSettings } from "@/hooks/use-system-settings";
 
 // Color presets for the theme
 const colorPresets = [
+  { name: "Erovoutika", primary: "#00008B", secondary: "#ffffff" },
   { name: "Green", primary: "#006937", secondary: "#004d29" },
-  { name: "Royal Blue", primary: "#1e40af", secondary: "#1e3a8a" },
   { name: "Crimson Red", primary: "#dc2626", secondary: "#b91c1c" },
   { name: "Purple", primary: "#7c3aed", secondary: "#6d28d9" },
   { name: "Teal", primary: "#0d9488", secondary: "#0f766e" },
